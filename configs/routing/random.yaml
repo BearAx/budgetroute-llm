@@ -1,0 +1,6 @@
+routing:
+  policy: random
+  seed: 42
+  small_probability: 0.7
+  large_probability: 0.3
+

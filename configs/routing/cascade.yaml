@@ -1,0 +1,5 @@
+routing:
+  policy: cascade
+  cascade_confidence_threshold: 0.65
+  retain_initial_answer: true
+

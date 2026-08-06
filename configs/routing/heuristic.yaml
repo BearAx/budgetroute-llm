@@ -1,0 +1,5 @@
+routing:
+  policy: heuristic
+  difficulty_threshold: 0.35
+  abstain_threshold: 0.2
+

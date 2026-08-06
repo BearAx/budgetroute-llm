@@ -1,0 +1,57 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# Environments and local configuration
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# IDEs and operating systems
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# Models, datasets, caches, indexes, and experiment artifacts
+models/
+model-cache/
+.cache/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.faiss
+*.index
+data/downloads/
+data/indexes/
+outputs/*
+!outputs/.gitkeep
+reports/generated/
+
+# Logs and scratch files
+*.log
+*.tmp
+*.bak
+tmp/
+

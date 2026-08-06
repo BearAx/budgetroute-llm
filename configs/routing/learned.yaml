@@ -1,0 +1,4 @@
+routing:
+  policy: learned
+  learned_model_path: outputs/router/router.joblib
+

@@ -1,0 +1,32 @@
+name: Fake benchmark smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - src/**
+      - configs/**
+      - data/**
+
+permissions:
+  contents: read
+
+jobs:
+  fake-smoke-not-performance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[dev]'
+      - name: Run explicitly fake pipeline smoke benchmark
+        run: python -m budgetroute benchmark --config configs/benchmarks/fake-smoke.yaml
+      - name: Upload fake artifacts (not performance evidence)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fake-smoke-artifacts-not-real-performance
+          path: outputs/
+          retention-days: 7
+

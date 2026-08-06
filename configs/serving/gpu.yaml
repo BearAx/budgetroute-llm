@@ -1,0 +1,8 @@
+extends:
+  - ../base.yaml
+  - ../models/local-gpu.yaml
+retrieval:
+  enabled: true
+routing:
+  policy: heuristic
+

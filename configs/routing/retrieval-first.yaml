@@ -1,0 +1,7 @@
+retrieval:
+  enabled: true
+  corpus_path: data/sample_corpus
+routing:
+  policy: retrieval_first
+  retrieval_similarity_threshold: 0.12
+

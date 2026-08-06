@@ -1,0 +1,2 @@
+Quality-aware routing should be evaluated as a trade-off, not a universal winner. Important systems measurements include p50 and p95 latency, throughput, token counts, process memory, route distribution, and escalation count. Important quality measurements include exact match, token F1, numeric correctness, classification accuracy, abstention correctness, and calibration error.
+

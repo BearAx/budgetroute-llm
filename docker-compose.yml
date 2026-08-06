@@ -1,0 +1,16 @@
+services:
+  budgetroute:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      BUDGETROUTE_HOST: 0.0.0.0
+      BUDGETROUTE_PORT: "8000"
+      BUDGETROUTE_OUTPUT_DIR: /app/outputs
+    volumes:
+      - ./outputs:/app/outputs
+      - ./model-cache:/home/budgetroute/.cache/huggingface
+    restart: unless-stopped
+

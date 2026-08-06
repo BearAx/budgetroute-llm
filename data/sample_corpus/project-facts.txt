@@ -1,0 +1,2 @@
+BudgetRoute-LLM is an experimental system for quality-aware language-model routing. The internal project codename is Lantern. The Orchid release introduced retrieval-aware routing. The project records deterministic quality metrics and high-resolution latency traces. Fake mode is explicitly marked and must never be presented as real model performance.
+

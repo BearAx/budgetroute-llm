@@ -1,0 +1,17 @@
+extends:
+  - ../base.yaml
+  - ../models/fake.yaml
+retrieval:
+  enabled: true
+routing:
+  policy: heuristic
+benchmark:
+  dataset_path: data/sample_benchmark.jsonl
+  policies: [always_small, always_large, heuristic, retrieval_first, cascade]
+  warmup_runs: 1
+  measured_runs: 1
+  concurrency: 1
+  batch_size: 1
+  quality_threshold: 0.8
+  fake: true
+

@@ -1,0 +1,14 @@
+extends:
+  - ../base.yaml
+  - ../models/cpu-smoke.yaml
+retrieval:
+  enabled: false
+routing:
+  policy: heuristic
+benchmark:
+  dataset_path: data/sample_benchmark.jsonl
+  policies: [always_small, always_large, heuristic]
+  warmup_runs: 1
+  measured_runs: 1
+  fake: false
+

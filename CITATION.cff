@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use BudgetRoute-LLM, please cite this software."
+title: "BudgetRoute-LLM"
+type: software
+authors:
+  - family-names: "Medvedev"
+    given-names: "Aleksandr"
+version: 0.1.0
+date-released: 2026-08-06
+license: MIT
+abstract: "A quality-aware language-model inference routing and evaluation system."

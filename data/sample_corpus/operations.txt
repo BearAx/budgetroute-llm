@@ -1,0 +1,2 @@
+The sample service exposes health at /healthz and readiness at /readyz. A health check does not trigger model loading. Readiness reports whether configured backends and retrieval services are initialized. Experiment outputs include resolved configuration, environment metadata, predictions, routes, timings, errors, metrics, and a generated report.
+
