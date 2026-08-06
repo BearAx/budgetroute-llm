@@ -248,12 +248,3 @@ See [limitations](docs/limitations.md) for details.
 ## Roadmap
 
 Planned work includes stronger licensed datasets and grouped splits, richer calibration studies, optimized dynamic batching, additional inference runtimes, cost-aware multi-objective policies, and distribution-shift monitoring. See [ROADMAP](ROADMAP.md); roadmap items are not complete features.
-
-## Personal contribution
-
-Aleksandr Medvedev designed and implemented the package architecture, offline fake system, backend abstraction, routing/retrieval pipeline, deterministic evaluation, experiment provenance, reporting, API, tests, CI, and documentation. Resume wording and a short demo script with placeholders for real measured results are in [portfolio notes](docs/portfolio-notes.md).
-
-## License and citation
-
-MIT © 2026 Aleksandr Medvedev. See [LICENSE](LICENSE). Citation metadata is provided in [CITATION.cff](CITATION.cff); no DOI or publication is claimed.
-
