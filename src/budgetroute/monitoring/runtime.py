@@ -25,8 +25,20 @@ def _summary(rows: list[dict[str, float]]) -> dict[str, dict[str, float]]:
         values = [row[name] for row in rows]
         mean = sum(values) / len(values)
         variance = sum((value - mean) ** 2 for value in values) / len(values)
-        result[name] = {"mean": mean, "standard_deviation": variance**0.5}
+        ordered = sorted(values)
+        result[name] = {
+            "mean": mean,
+            "standard_deviation": variance**0.5,
+            "q10": ordered[int((len(ordered) - 1) * 0.1)],
+            "q50": ordered[int((len(ordered) - 1) * 0.5)],
+            "q90": ordered[int((len(ordered) - 1) * 0.9)],
+        }
     return result
+
+
+def _distribution(values: list[str]) -> dict[str, float]:
+    counts = Counter(values)
+    return {name: count / len(values) for name, count in counts.items()} if values else {}
 
 
 class RuntimeMonitor:
@@ -36,26 +48,41 @@ class RuntimeMonitor:
         self.config = config
         self._lock = threading.Lock()
         self._features: deque[dict[str, float]] = deque(maxlen=config.window_size)
-        self._baseline = self._load_baseline(config.baseline_path)
+        self._categories: deque[str] = deque(maxlen=config.window_size)
+        self._baseline, self._baseline_categories = self._load_baseline(config.baseline_path)
         self._counters: Counter[str] = Counter()
         self._latency_sum_ms = 0.0
         self._queue_sum_ms = 0.0
 
     @staticmethod
-    def _load_baseline(path: Path | None) -> dict[str, dict[str, float]] | None:
+    def _load_baseline(
+        path: Path | None,
+    ) -> tuple[dict[str, dict[str, float]] | None, dict[str, float] | None]:
         if path is None:
-            return None
+            return None, None
         data = json.loads(path.read_text(encoding="utf-8"))
         features = data.get("features")
         if not isinstance(features, dict):
             raise ValueError("monitoring baseline must contain a features mapping")
-        return {
+        feature_summary = {
             str(name): {
                 "mean": float(values["mean"]),
                 "standard_deviation": float(values.get("standard_deviation", 0.0)),
+                **{
+                    quantile: float(values[quantile])
+                    for quantile in ("q10", "q50", "q90")
+                    if quantile in values
+                },
             }
             for name, values in features.items()
         }
+        categories = data.get("categories")
+        category_distribution = (
+            {str(name): float(value) for name, value in categories.items()}
+            if isinstance(categories, dict)
+            else None
+        )
+        return feature_summary, category_distribution
 
     def observe(
         self,
@@ -68,6 +95,7 @@ class RuntimeMonitor:
             return
         with self._lock:
             self._features.append(features.numeric_snapshot())
+            self._categories.append(features.category)
             self._counters["requests_total"] += 1
             self._counters[f"route_{response.route.value}_total"] += 1
             self._counters["errors_total"] += 0
@@ -77,6 +105,7 @@ class RuntimeMonitor:
             self._queue_sum_ms += response.timing.queue_ms
             if self._baseline is None and len(self._features) == self.config.minimum_samples:
                 self._baseline = _summary(list(self._features))
+                self._baseline_categories = _distribution(list(self._categories))
 
     def record_error(self) -> None:
         with self._lock:
@@ -93,6 +122,10 @@ class RuntimeMonitor:
         with self._lock:
             rows = list(self._features)
             baseline = dict(self._baseline) if self._baseline is not None else None
+            baseline_categories = (
+                dict(self._baseline_categories) if self._baseline_categories is not None else None
+            )
+            categories = list(self._categories)
             counters = dict(self._counters)
             latency_sum = self._latency_sum_ms
             queue_sum = self._queue_sum_ms
@@ -103,24 +136,46 @@ class RuntimeMonitor:
                 if name not in current:
                     continue
                 scale = max(reference.get("standard_deviation", 0.0), 1.0)
-                per_feature[name] = abs(current[name]["mean"] - reference["mean"]) / scale
-        score = sum(per_feature.values()) / len(per_feature) if per_feature else 0.0
+                shifts = [abs(current[name]["mean"] - reference["mean"]) / scale]
+                shifts.extend(
+                    abs(current[name][quantile] - reference[quantile]) / scale
+                    for quantile in ("q10", "q50", "q90")
+                    if quantile in reference and quantile in current[name]
+                )
+                per_feature[name] = sum(shifts) / len(shifts)
+        current_categories = _distribution(categories)
+        category_shift = 0.0
+        components = list(per_feature.values())
+        if baseline_categories is not None and len(rows) >= self.config.minimum_samples:
+            names = set(baseline_categories) | set(current_categories)
+            category_shift = 0.5 * sum(
+                abs(current_categories.get(name, 0.0) - baseline_categories.get(name, 0.0))
+                for name in names
+            )
+            components.append(category_shift)
+        score = sum(components) / len(components) if components else 0.0
         return {
             "enabled": self.config.enabled,
             "sample_count": len(rows),
             "window_size": self.config.window_size,
             "baseline_ready": baseline is not None,
-            "drift_method": "mean_shift_in_baseline_standard_deviations",
+            "drift_method": "mean_and_quantile_shift_plus_category_total_variation",
             "drift_score": score,
             "drift_threshold": self.config.drift_threshold,
             "drift_detected": score >= self.config.drift_threshold,
             "feature_drift": per_feature,
+            "category_drift": category_shift,
+            "category_distribution": current_categories,
             "counters": counters,
             "latency_sum_ms": latency_sum,
             "queue_sum_ms": queue_sum,
         }
 
-    def prometheus(self, scheduler: dict[str, Any] | None = None) -> str:
+    def prometheus(
+        self,
+        scheduler: dict[str, Any] | None = None,
+        shared_metrics: dict[str, float] | None = None,
+    ) -> str:
         snapshot = self.snapshot()
         counters = snapshot["counters"]
         lines = [
@@ -155,6 +210,14 @@ class RuntimeMonitor:
                     "# HELP budgetroute_queue_rejections_total Rejected overload submissions.",
                     "# TYPE budgetroute_queue_rejections_total counter",
                     f"budgetroute_queue_rejections_total {scheduler.get('rejected', 0)}",
+                ]
+            )
+        for name, value in sorted((shared_metrics or {}).items()):
+            safe_name = "".join(character if character.isalnum() else "_" for character in name)
+            lines.extend(
+                [
+                    f"# TYPE budgetroute_shared_{safe_name} counter",
+                    f"budgetroute_shared_{safe_name} {value:.6f}",
                 ]
             )
         return "\n".join(lines) + "\n"

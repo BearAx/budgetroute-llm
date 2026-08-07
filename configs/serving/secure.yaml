@@ -5,12 +5,20 @@ mode: fake
 api:
   host: 0.0.0.0
   require_api_key: true
+  external_tls_termination: true
   api_key_env: BUDGETROUTE_API_KEY
   trusted_hosts: [budgetroute.local, localhost, 127.0.0.1]
   rate_limit_requests: 30
   rate_limit_window_seconds: 60
   feedback_enabled: true
+operations:
+  backend: sqlite
+  database_path: data/state/budgetroute.db
 batching:
   enabled: true
   max_batch_size: 8
   max_wait_ms: 10
+content_policy:
+  enabled: true
+  prompt_blocklist: ["-----BEGIN PRIVATE KEY-----"]
+  output_blocklist: ["-----BEGIN PRIVATE KEY-----"]

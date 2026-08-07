@@ -40,9 +40,10 @@ class FakeEmbedder:
 class TransformersEmbedder:
     """Lazy mean-pooling embedder backed by a configurable Transformers encoder."""
 
-    def __init__(self, model_id: str, device: str = "cpu") -> None:
+    def __init__(self, model_id: str, device: str = "cpu", revision: str | None = None) -> None:
         self.model_id = model_id
         self.device = device
+        self.revision = revision
         self._tokenizer: Any = None
         self._model: Any = None
         self._torch: Any = None
@@ -62,8 +63,12 @@ class TransformersEmbedder:
         if self.device == "cuda" and not torch.cuda.is_available():
             raise RetrievalError("CUDA embeddings were requested but CUDA is unavailable")
         try:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-            self._model = AutoModel.from_pretrained(self.model_id).to(self.device).eval()
+            self._tokenizer = AutoTokenizer.from_pretrained(self.model_id, revision=self.revision)
+            self._model = (
+                AutoModel.from_pretrained(self.model_id, revision=self.revision)
+                .to(self.device)
+                .eval()
+            )
         except Exception as exc:
             raise RetrievalError(f"could not load embedding model {self.model_id}: {exc}") from exc
         self._dimension = int(self._model.config.hidden_size)

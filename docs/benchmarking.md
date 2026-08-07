@@ -12,7 +12,9 @@ Compilation warm-up belongs outside measured steady-state requests; metadata rec
 
 p50 and p95 are reported for non-empty samples, accompanied by a warning below 20 values. p99 is omitted below 100 values. Tail values from tiny datasets are illustrative and should not be compared as stable estimates.
 
-Failed requests are recorded in `errors.jsonl` and excluded from successful latency summaries, while failure counts remain visible. Cold-start and warm-start values must be labeled separately; v0.4 reports warm steady-state request values and preserves initialization/compilation fields separately.
+Failed requests are recorded in `errors.jsonl` and excluded from successful latency summaries, while failure counts remain visible. Cold-start and warm-start values must be labeled separately; steady-state request values preserve initialization/compilation fields separately.
+
+Grouped percentile bootstrap intervals use the configured seed and resample independent groups, not related rows. `minimum_samples_for_claims` adds a visible warning when evidence is too small for a comparative claim. Neither mechanism fixes selection bias or dataset mismatch.
 
 ## Generation collection and replay
 
@@ -25,3 +27,5 @@ Replay preserves recorded generation/escalation latency and token/memory observa
 Compare policies only when model identifiers, revisions, runtime endpoint/version, prompt templates, generation parameters, data, warm-up, measured count, batch size, concurrency, queue/deadline settings, precision, quantization, compiler state, cost-unit definitions, hardware, drivers, and software environment are compatible. Load-aware policies additionally require comparable arrival patterns. Inspect resolved configuration and environment metadata before interpreting differences.
 
 Fake artificial delay verifies instrumentation only. It is not a proxy for real hardware or model behavior.
+
+`compatibility-matrix` validates initialization plus single/batch behavior for exact configurations and writes environment-backed evidence without making a speed comparison. `load-test` sends a fixed number of real HTTP requests to one or more authorized endpoints with closed-loop bounded concurrency. It calculates throughput from the measured wall interval and request latency only while holding a concurrency slot, along with errors, overload, p50/p95/p99, and a bounded claim statement. It is not an open-loop arrival/soak model. Its replica multiplier is suppressed when there are non-overload failures or no successful requests and is otherwise only a heuristic to test in a subsequent steady-state run.

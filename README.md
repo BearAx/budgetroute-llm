@@ -1,92 +1,61 @@
 # BudgetRoute-LLM
 
-BudgetRoute-LLM is a quality-aware language-model inference system. It estimates request difficulty, optionally retrieves local context, and selects a small model, larger model, retrieval-assisted small model, confidence cascade, or abstention. Its experiment harness measures the resulting quality–latency trade-off rather than assuming one policy is universally best.
+BudgetRoute-LLM is a typed, quality-aware language-model routing system. It combines small and large model backends, retrieval, confidence cascades, abstention, and durable human review with reproducible evaluation and a tenant-aware service boundary.
 
-> **Status: v0.4 research implementation. No official comparative benchmark result is claimed.** Pinned data/models, cache replay, calibrated routing, dynamic scheduling, local OpenAI-compatible runtimes, operational monitoring, and one small CPU acceptance run are validated. Run representative quality and load experiments on your target deployment before making performance claims. Fake mode remains software-path evidence only.
+> **Status: v0.6 research and deployment-validation implementation. No official comparative model or hardware result is claimed.** The offline suite validates software behavior; fake timings validate instrumentation only. Any resume or production claim must cite preserved artifacts from representative data, models, runtimes, and hardware.
 
-## Problem and research questions
+## What it answers
 
-Language-model deployments often send every prompt to one model, even when requests differ sharply in difficulty and context needs. BudgetRoute-LLM asks:
-
-> Can a quality-aware routing policy reduce average inference latency and compute usage while keeping answer quality above a configured target?
-
-The project also examines where retrieval helps, when cascade escalation is precise, how confidence calibration affects routing, and how thresholds move quality, coverage, latency, and compute together.
+The central question is: can a routing policy reduce average inference cost or latency while maintaining a stated quality target? The project makes that question measurable by preserving route decisions, model outcomes, confidence, retrieval, latency, usage, uncertainty, configuration, environment, and provenance.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A["Authenticated, bounded request"] --> Q["Deadline-aware scheduler"]
-    Q --> B["Interpretable features"]
-    B --> C["Optional local retrieval"]
-    C --> D["Routing policy"]
-    D --> E["Small backend"]
-    D --> F["Small + retrieval"]
-    D --> G["Large backend"]
-    D --> H["Cascade / escalation"]
-    D --> I["Abstention"]
-    E --> J["Structured trace"]
-    F --> J
-    G --> J
-    H --> J
-    I --> J
-    J --> K["Evaluation artifacts and report"]
-    J --> M["Metrics and drift monitor"]
+    A["Authenticated tenant request"] --> B["Shared quota and admission lease"]
+    B --> C["Bounded deadline-aware scheduler"]
+    C --> D["Features and optional retrieval"]
+    D --> E["Routing policy"]
+    E --> F["Small / retrieved / large / cascade"]
+    E --> G["Abstain / human review"]
+    F --> H["Structured response and prediction record"]
+    G --> H
+    H --> I["Metrics, drift, feedback, audit"]
+    I --> J["Gated calibration registry"]
+    H --> K["Benchmark artifacts and reports"]
 ```
 
-Protocols decouple generation backends, embedders, retrievers, policies, and evaluators. Pydantic schemas form the boundaries; YAML composition selects implementations. See [architecture](docs/architecture.md).
+Protocols separate generation backends, retrieval indexes, routing policies, operational storage, evaluators, and reports. Pydantic schemas form the boundaries, and composable YAML selects implementations. See [architecture](docs/architecture.md).
 
-## Features
+## Phase 6 and 7 capabilities
 
-- Four explicit modes: deterministic fake, real CPU smoke, local GPU, and FastAPI service.
-- Fixed, seeded-random, heuristic, learned, retrieval-first, and cascade policies.
-- Deterministic feature extraction with no target leakage.
-- Revision-pinned GSM8K, MMLU, and HotpotQA adapters with license metadata, content hashes, and immutable materialization manifests.
-- Content-addressed generation caching and model-free policy replay with exact live/replay agreement checks.
-- Length-normalized token likelihood, sequence log-probability, token entropy, and explicit uncalibrated/calibrated confidence fields.
-- Group-disjoint train/calibration/test router partitions, temperature calibration, and calibration-only threshold selection.
-- Bounded deadline-aware API scheduling, ordered backend waves, configurable concurrency, and true padded Transformers batches.
-- Thread-safe load telemetry plus load-aware and configurable quality/cost/latency utility policies.
-- Local OpenAI-compatible backend for vLLM, llama.cpp server, Ollama, and compatible chat-completions runtimes.
-- Explicit human-review outcomes, rolling feature-shift alerts, Prometheus metrics, and aggregate feedback.
-- Optional API-key authentication, trusted-host validation, per-process rate limits, request-body limits, secure headers, and overload responses.
-- Portable NumPy exact-cosine retrieval plus optional FAISS packaging support.
-- Lazy Transformers model loading, CPU/CUDA selection, mixed precision, optional quantization, and `torch.compile` controls.
-- Exact match, token F1, numeric, classification, keyword, abstention, routing, selective, and calibration metrics.
-- High-resolution route/retrieval/generation/total timing, token usage, RSS, and optional peak CUDA memory.
-- Unique, atomic experiment artifacts and reports generated only from saved results.
-- Offline tests, FastAPI endpoints, async microbatching, Docker, CI, and Windows/Unix scripts.
+- Same-host replica coordination through transactional SQLite WAL: tenant quotas, expiring global inflight leases, shared counters, predictions, delayed labels, review cases, and audit events.
+- Environment-only tenant credentials with constant-time comparison and `inference`, `feedback`, `review`, and `admin` scopes. Credentials are not serialized to config responses or artifacts.
+- Privacy-minimal durable review workflow with claim/resolve transitions, optimistic versions, tenant isolation, idempotent feedback, and a verifiable SHA-256 audit chain.
+- Chronological online recalibration from delayed labels with a held-out tail, Brier/ECE promotion gates, Page-Hinkley change points, immutable candidates, atomic activation, and rollback.
+- A separate learned retrieval-benefit classifier trained from paired `always_small` and `retrieval_first` evidence with group-safe train/calibration/test partitions.
+- Portable exact cosine retrieval, optional FAISS flat search, and optional FAISS HNSW approximate search. Transformers embedding profiles require an exact model revision.
+- Runtime compatibility artifacts and real multi-endpoint HTTP load generation with p50/p95/p99, measured wall-clock throughput, overload/error rates, and clearly labeled heuristic capacity guidance.
+- Bootstrap confidence intervals, minimum-sample claim warnings, phrase-safe keyword matching, improved final numeric/fraction/percentage extraction, and numeric/category drift monitoring.
+- Built-in TLS certificate/key support or an explicit external TLS-termination declaration for non-loopback serving, plus bounded metadata and configurable prompt/metadata/output substring policy.
 
-## Execution modes
+Earlier milestones also provide revision-pinned public dataset adapters, content-addressed generation replay, calibrated learned routing, padded Transformers batching, load/cost-aware policies, local OpenAI-compatible backends, Prometheus metrics, Docker, reporting, and security CI.
 
-| Mode | Purpose | Network/GPU needed? | Configuration |
-|---|---|---|---|
-| Fake | Tests, CI, demos, API smoke | No | `configs/serving/fake.yaml` |
-| CPU smoke | Validate pinned Transformers and public-data integration | Model/data download, no GPU | `configs/benchmarks/real-cpu-gsm8k-smoke.yaml` |
-| Local GPU | Real quality/performance experiments | Model download and CUDA | `configs/benchmarks/full.yaml` |
-| Local model servers | vLLM/llama.cpp/Ollama-compatible serving | Running local endpoints | `configs/serving/local-openai-compatible.yaml` |
-| API | Serve any of the above | Depends on selected config | `configs/serving/*.yaml` |
+## Execution profiles
 
-Fake answers, confidence, and artificial latency are deterministic and marked `fake: true`. They must never be reported as real performance.
+| Profile | Purpose | Network/GPU | Configuration |
+|---|---|---:|---|
+| Fake | Tests, CI, architecture demos | No | `configs/serving/fake.yaml` |
+| Distributed fake | Tenant/review/audit/replica workflow | No model network | `configs/serving/distributed.yaml` |
+| CPU smoke | Pinned public-data/model integration | Download, CPU | `configs/benchmarks/real-cpu-gsm8k-smoke.yaml` |
+| Local GPU | Representative live experiments | Download, CUDA | `configs/benchmarks/full.yaml` |
+| Local servers | vLLM/llama.cpp/Ollama-compatible serving | Local endpoints | `configs/serving/local-openai-compatible.yaml` |
 
-## Repository map
-
-```text
-src/budgetroute/      package: backends, retrieval, routing, inference, evaluation, API
-configs/              composable model, dataset, routing, benchmark, and serving YAML
-data/                 original development corpus and 12-record benchmark
-tests/                offline unit, integration, and timing tests
-docs/                 architecture, methods, operations, security guidance, decisions
-scripts/              PowerShell and Bash setup/check/demo entry points
-outputs/              ignored experiment directories; only .gitkeep is tracked
-.github/workflows/    quality, packaging, and clearly labeled fake-smoke CI
-```
+Fake output, confidence, and artificial latency are marked `fake: true` and are never performance evidence.
 
 ## Installation
 
-Python 3.11 or 3.12 is the primary target. Python 3.13 is accepted by the package and used by the initial local validation.
-
-### Windows PowerShell
+Python 3.11–3.13 is supported.
 
 ```powershell
 py -3.12 -m venv .venv
@@ -94,202 +63,167 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 ```
 
-Or run `powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1`.
-
-### Linux or macOS
-
 ```bash
 python3.12 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install -e '.[dev]'
 ```
 
-Or run `bash scripts/bootstrap.sh`. Neither script pretends that activation persists after it exits.
+Use `.[transformers,datasets]` for real local models and public datasets, `.[retrieval]` for supported FAISS platforms, or `.[all]` for the complete optional stack. CUDA wheels and quantization support can require platform-specific installation.
 
-Install optional real-model and public-dataset support with `pip install -e '.[dev,transformers,datasets]'`. The `all` extra adds API, learned-router, reporting, datasets, Transformers, and GPU helper dependencies; platform-specific CUDA and quantization support may still require separate setup.
-
-## Quick fake demo
-
-```powershell
-.\.venv\Scripts\python -m budgetroute demo --config configs/serving/fake.yaml
-```
+## Quick offline validation
 
 ```bash
-./.venv/bin/python -m budgetroute demo --config configs/serving/fake.yaml
-```
-
-The five cases demonstrate easy-to-small, difficult-to-large, retrieval, cascade escalation, and abstention. Timing is simulated.
-
-## Fake benchmark and report
-
-```bash
+python -m budgetroute demo --config configs/serving/fake.yaml
 python -m budgetroute benchmark --config configs/benchmarks/fake-smoke.yaml
 python -m budgetroute generate-report --latest
+python -m budgetroute compatibility-matrix --config configs/serving/fake.yaml
 ```
 
-The run writes `config.resolved.yaml`, environment/Git metadata, predictions, routes, timings, errors, metrics, Markdown/CSV, and PNG figures under an ignored `outputs/<UTC>_fake-smoke/` directory. Reports carry a prominent fake warning.
+The benchmark creates an ignored, unique `outputs/<UTC>_fake-smoke/` directory with resolved config, environment/Git metadata, predictions, routes, timings, errors, metrics, and reports. A fake warning is embedded in its artifacts.
 
-## CPU smoke test
+## Distributed service setup
+
+`configs/serving/distributed.yaml` uses SQLite coordination and expects tenant credentials from `BUDGETROUTE_TENANT_KEYS_JSON`. Supply this value through a secret manager or orchestrator, not a committed file:
+
+```powershell
+$env:BUDGETROUTE_TENANT_KEYS_JSON = '{"tenants":[{"tenant_id":"portfolio","subject":"operator","api_key":"replace-with-a-long-random-secret","scopes":["inference","feedback","review","admin"]}]}'
+$env:BUDGETROUTE_REPLICA_ID = 'budgetroute-1'
+python -m budgetroute security-check --config configs/serving/distributed.yaml
+python -m budgetroute serve --config configs/serving/distributed.yaml
+```
+
+Change `api.trusted_hosts` to actual DNS names. The example declares `external_tls_termination: true`, so a trusted reverse proxy must terminate HTTPS and must not permit direct public access to the application port. Alternatively configure `api.tls_certfile` and `api.tls_keyfile` for Uvicorn-managed TLS. Non-loopback startup fails without authentication and one of these explicit TLS boundaries.
+
+SQLite coordinates processes using the same database on one reliable local filesystem. It is not a multi-region consensus database and should not be placed on an unsupported network filesystem. A multi-host deployment should implement the `OperationalStore` protocol with PostgreSQL/Redis and retain the same transactional semantics.
+
+### API and scopes
+
+Health probes are public. Other endpoints require a Bearer or `X-API-Key` credential when authentication is configured.
+
+| Scope | Endpoints |
+|---|---|
+| `inference` | `POST /v1/route`, `POST /v1/generate`, and `GET /v1/config` |
+| `feedback` | `POST /v1/feedback` |
+| `review` | list, claim, and resolve `/v1/reviews` cases for the caller's tenant |
+| `admin` | monitoring/metrics, audit reads/verification, and cross-tenant administrative access |
+
+`admin` implies every scope. Review records retain correlation IDs, state, reason, actor, and outcome—not prompts or generated text. Audit events are tamper-evident within the retained chain, not externally notarized or immutable against a database administrator.
+
+## Adaptation workflow
+
+Generation stores raw/calibrated confidence and numeric features under the authenticated tenant and request ID. Delayed feedback joins to that prediction without retaining feedback notes.
 
 ```bash
-pip install -e '.[transformers,datasets,reporting]'
-python -m budgetroute materialize-dataset --spec configs/datasets/gsm8k.yaml --output data/materialized/gsm8k-cpu-smoke.jsonl --limit 10
-python -m budgetroute doctor --config configs/benchmarks/real-cpu-gsm8k-smoke.yaml
-python -m budgetroute collect-baselines --config configs/benchmarks/real-cpu-gsm8k-smoke.yaml
-python -m budgetroute replay-benchmark --config configs/benchmarks/real-cpu-gsm8k-smoke.yaml
-python -m budgetroute verify-replay --config configs/benchmarks/real-cpu-gsm8k-smoke.yaml --sample-size 1
+python -m budgetroute adapt-confidence --config configs/serving/distributed.yaml
+python -m budgetroute rollback-calibration --config configs/serving/distributed.yaml
 ```
 
-This downloads revision-pinned Apache-2.0 SmolLM2 examples and a revision-pinned MIT GSM8K split from Hugging Face. Downloads, materialized data, model caches, and generation caches are ignored by Git. The smoke workload validates integration and is not a statistically meaningful result.
+Adaptation is operator-invoked and fail-closed below the configured label count. It sorts by label time, trains on the earlier portion, evaluates on the held-out tail, and promotes only when Brier improvement and ECE regression gates pass. It never mutates a version in place. Promotion does not prove future performance; monitor after deployment and keep rollback operational.
 
-The complete collect/replay/calibrate methodology is documented in [the real evaluation workflow](docs/real-evaluation-workflow.md).
-
-## Local GPU benchmark
+Train the retrieval-benefit policy from a compatible benchmark artifact:
 
 ```bash
-pip install -e '.[all]'
-python -m budgetroute doctor --config configs/benchmarks/full.yaml
-python -m budgetroute benchmark --config configs/benchmarks/full.yaml
+python -m budgetroute train-retrieval-router --artifacts outputs/RUN --output outputs/router/retrieval.joblib
 ```
 
-The example Qwen model sizes are configuration examples, not claims that they fit every GPU. Adjust identifiers, precision, quantization, generation length, batch size, and measured runs for available VRAM. Explicit CUDA requests never silently fall back to CPU.
+Configure the resulting artifact with `configs/routing/learned-retrieval.yaml`. The label asks whether retrieval improved paired answer quality by the configured margin; it is intentionally separate from the small-model-success router.
+
+## Semantic retrieval
+
+`configs/retrieval/semantic-hnsw.yaml` demonstrates a revision-pinned `sentence-transformers/all-MiniLM-L6-v2` embedding profile with FAISS HNSW. Build with:
+
+```bash
+python -m budgetroute build-index --config configs/serving/YOUR-CONFIG.yaml
+```
+
+The persisted NumPy vectors/chunks remain portable, while HNSW is rebuilt with configured graph and search parameters on load. Approximate retrieval must be validated for recall and latency on the target corpus; the repository does not claim universal HNSW settings.
+
+## Compatibility and load evidence
+
+Probe exact service/backend configurations without comparing their speed:
+
+```bash
+python -m budgetroute compatibility-matrix --config configs/serving/fake.yaml --config configs/serving/local-openai-compatible.yaml
+```
+
+Run load only against endpoints you own or are authorized to test:
+
+```bash
+python -m budgetroute load-test --target https://budgetroute.example --requests 1000 --concurrency 32 --api-key-env BUDGETROUTE_LOAD_KEY
+```
+
+Targets, environment, request mix, actual measurement wall time, per-HTTP-request latency, samples, errors, overload, and the claim boundary are saved. The generator is a fixed-request closed-loop concurrency test, not an open-loop arrival model. The autoscaling multiplier is a heuristic starting point, not a deployment command or capacity guarantee.
 
 ## CLI
 
-Both `budgetroute ...` and `python -m budgetroute ...` work.
+`budgetroute` and `python -m budgetroute` expose:
 
 ```text
-doctor             inspect dependencies, CUDA, config, and output access
-validate-config    resolve and validate YAML composition
-security-check     audit deployment-sensitive settings without printing secrets
-inspect-data       validate benchmark JSONL and show category counts
-materialize-dataset download a pinned public split and write a hash manifest
-build-index        build and persist the configured retrieval index
-benchmark          run configured policies and save artifacts
-collect-baselines  generate small/large outcomes once and populate the cache
-replay-benchmark   evaluate policies from cache without loading model weights
-verify-replay      compare live and cached semantic responses exactly
-train-router       train a fake-demo or real learned router from artifacts
-evaluate-router    evaluate persisted router predictions and calibration
-calibrate-confidence fit a portable small-backend correctness calibrator
-generate-report    create report files from existing artifacts only
-serve              start FastAPI with the selected configuration
-demo               run the offline five-case fake demonstration
+doctor                 inspect dependencies, hardware, config, and output access
+validate-config        resolve and validate composed YAML
+security-check         audit deployment-sensitive settings without printing secrets
+inspect-data           validate benchmark data and manifests
+materialize-dataset    download a pinned public split and hash it
+build-index            build the configured exact/FAISS/HNSW index
+benchmark              execute policies and persist experiment artifacts
+collect-baselines      collect content-addressed model outcomes
+replay-benchmark       compare policies without loading model weights
+verify-replay          compare live and cached semantic responses
+train-router           train calibrated small-model-success routing
+evaluate-router        evaluate a saved router on artifacts
+calibrate-confidence   fit an offline backend-confidence calibrator
+train-retrieval-router train paired retrieval-benefit routing
+adapt-confidence       create and gate a delayed-label calibration candidate
+rollback-calibration   restore a prior promoted calibrator
+compatibility-matrix   probe exact runtime configurations
+load-test              generate authorized multi-endpoint HTTP load evidence
+audit-check            verify the operational audit hash chain
+generate-report        render reports from saved artifacts only
+serve                  start FastAPI
+demo                   run the five-case deterministic demo
 ```
 
-Use `python -m budgetroute COMMAND --help` for options.
+Use `python -m budgetroute COMMAND --help` for exact options.
 
-## API
+## Evaluation and reproducibility
 
-Start fake mode:
+Quality metrics include exact match, token F1, numeric/classification/keyword correctness, abstention, selective accuracy, routing and escalation diagnostics, Brier score, ECE, and reliability bins. Systems metrics include separated queue/routing/retrieval/generation/escalation/total latency, actual batch size, measured wall throughput, tokens, RSS/CUDA memory, failures, overload, and route shares.
+
+Grouped deterministic bootstrap intervals quantify sampling uncertainty, and results below `benchmark.minimum_samples_for_claims` carry a claim warning. These controls cannot make an unrepresentative sample representative. See [evaluation](docs/evaluation.md), [benchmarking](docs/benchmarking.md), and [reproducibility](docs/reproducibility.md).
+
+## Development
 
 ```bash
-python -m budgetroute serve --config configs/serving/fake.yaml
-```
-
-Endpoints are `GET /healthz`, `GET /readyz`, `GET /metrics`, `GET /v1/config`, `GET /v1/monitoring`, `POST /v1/route`, `POST /v1/generate`, and optional `POST /v1/feedback`.
-
-```bash
-curl -s http://127.0.0.1:8000/healthz
-curl -s -X POST http://127.0.0.1:8000/v1/route \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"What is the capital of France?"}'
-curl -s -X POST http://127.0.0.1:8000/v1/generate \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"According to the project corpus, what is the internal project codename?","requires_retrieval":true}'
-```
-
-OpenAPI is available at `/docs`. Loopback development remains authentication-optional. Non-loopback binding is rejected unless API-key authentication is enabled.
-
-## Secure API setup
-
-Generate a secret outside the repository, set `BUDGETROUTE_API_KEY` through your shell or orchestrator, edit `api.trusted_hosts` for the real hostname, then validate and serve:
-
-```powershell
-$env:BUDGETROUTE_API_KEY = (New-Guid).Guid + (New-Guid).Guid
-python -m budgetroute security-check --config configs/serving/secure.yaml
-python -m budgetroute serve --config configs/serving/secure.yaml
-```
-
-Terminate TLS at a trusted reverse proxy and restrict model-runtime ports at the network layer. In-process authentication, limits, telemetry, and queues are useful single-instance controls; they are not a distributed gateway or tenant-isolation boundary. See [deployment](docs/deployment.md) and [the security policy](SECURITY.md).
-
-## Local OpenAI-compatible runtimes
-
-`configs/serving/local-openai-compatible.yaml` targets two loopback chat-completions endpoints. Start compatible servers separately, set their model IDs and ports in the profile, then run `doctor` before serving. Remote endpoints are denied by default; explicit remote opt-in additionally requires HTTPS. Credentials, when needed, are read only from the configured environment-variable name.
-
-## Dataset format
-
-Each UTF-8 JSONL line includes `id`, `group_id`, source provenance, `category`, `prompt`, `reference_answer`, `evaluation_type`, `requires_retrieval`, `must_abstain`, and `metadata`:
-
-```json
-{"id":"numeric_001","group_id":"problem-family-001","source":"example/source","source_split":"test","category":"numeric_reasoning","prompt":"A box contains 12 items and 3 are removed. How many remain?","reference_answer":"9","evaluation_type":"numeric","requires_retrieval":false,"must_abstain":false,"metadata":{}}
-```
-
-The bundled 12-record sample validates architecture only. It is original project data, not a conclusive benchmark. See [data guidance](data/README.md).
-
-## Routing policies
-
-- `always_small` and `always_large`: cost/quality baselines.
-- `random`: seeded deterministic selection with configurable probabilities.
-- `heuristic`: transparent request length, math/code, output length, category, and retrieval rules.
-- `learned`: calibrated scikit-learn prediction of small-model success, trained with group-safe train/calibration/test partitions.
-- `retrieval_first`: queries local context before backend selection.
-- `cascade`: runs small first and escalates below a configured confidence threshold.
-- `load_aware`: combines difficulty with trusted backend utilization and observed latency, using cascade or explicit human review under pressure.
-- `budget_aware`: scores routes with configured quality, latency, and cost-unit weights and enforces an optional per-request estimate ceiling.
-- Abstention is a route emitted when required context or answerability is insufficient.
-- Human review is a distinct route response; the project does not pretend to provide a durable review queue.
-
-See [routing](docs/routing.md) for failure modes and threshold interpretation.
-
-## Evaluation metrics
-
-Quality includes normalized exact match, token F1, numeric correctness, classification accuracy, keyword coverage, abstention correctness, routing accuracy, escalation precision/recall, false escalation/non-escalation, coverage, selective accuracy, Brier score, expected calibration error, and reliability bins.
-
-Systems measurements include p50/p95 (and p99 when sample size permits), queue/routing/retrieval/generation/escalation/total latency, batch size, TTFT where available, throughput, token counts/rate, configured cost units, RSS, optional peak CUDA memory, failures, escalations, and route shares. Definitions and edge cases are in [evaluation](docs/evaluation.md).
-
-## Reproducibility
-
-Every run records UTC ID, configuration and dataset hashes, validated dataset manifest, exact model/tokenizer revisions, generation cache mode, replay status, seed, package version, backend metadata, environment/hardware, Git commit and dirty state, warm-up/measured counts, batch size, and concurrency. Model download time is excluded from steady-state timing. See [reproducibility](docs/reproducibility.md).
-
-## Development and testing
-
-```bash
+python -m compileall src tests
 python -m ruff format --check .
 python -m ruff check .
 python -m mypy src
-python -m pytest
-python -m pytest --cov=budgetroute --cov-report=term-missing --cov-fail-under=75
+python -m pytest --cov=budgetroute --cov-branch --cov-report=term-missing --cov-fail-under=75
 python -m build
+python -m twine check dist/*
 ```
 
-PowerShell users can run `scripts/check.ps1`; Unix users can run `scripts/check.sh`. Ordinary tests do not use the network, CUDA, Docker, Hugging Face authentication, or model downloads.
+Default tests are deterministic and offline. Do not commit credentials, model weights, downloaded datasets, built indexes, operational databases, calibration registries, or ordinary outputs.
 
-## Docker
+## Security boundary
 
-```powershell
-$env:BUDGETROUTE_API_KEY = (New-Guid).Guid + (New-Guid).Guid
-docker compose up --build
-curl http://127.0.0.1:8000/readyz
+The repository provides scoped authentication, input bounds, configurable literal-content rules, TLS configuration checks, trusted hosts, quota/admission controls, sanitized errors/config, tenant-scoped operational records, and security automation. It does not replace an identity provider, secret manager, WAF, malware scanner, model guardrail, service mesh, external audit archive, or privacy/compliance program. Literal blocklists are narrow defense-in-depth controls and do not solve prompt injection.
+
+See [deployment](docs/deployment.md), [SECURITY.md](SECURITY.md), and the detailed [limitation matrix](docs/limitations.md).
+
+## Repository map
+
+```text
+src/budgetroute/      backends, routing, retrieval, operations, adaptation, API, evaluation
+configs/              model, dataset, routing, retrieval, benchmark, and serving profiles
+data/                 small original development fixtures; generated state is ignored
+tests/                offline unit, integration, and timing tests
+docs/                 architecture, operations, methods, decisions, and limitations
+scripts/              PowerShell and Bash setup/check/demo helpers
+.github/workflows/    CI, packaging, fake smoke, CodeQL, dependency review/audit
 ```
 
-The CPU-safe image runs authenticated fake API mode as a non-root user and downloads no models during build. Compose refuses to start until `BUDGETROUTE_API_KEY` is supplied; send it as a Bearer token to `/v1/*`. Mount a model cache and install the appropriate runtime dependencies when adapting it for real CPU/GPU service; see [deployment](docs/deployment.md).
+## Resume use
 
-## Limitations
-
-- The sample is tiny, authored for development, and cannot establish external validity.
-- Quality, confidence, and latency depend on model, prompt formatting, data, hardware, drivers, and runtime.
-- Fake mode simulates behavior and is never evidence of actual model quality or speed.
-- Token likelihood is a real model signal but is not correctness probability; task-specific calibration remains mandatory.
-- Exact deterministic metrics do not fully evaluate open-ended usefulness or safety.
-- The portable retriever is lexical feature hashing plus exact search, not a production semantic index.
-- The scheduler, API-key limiter, feedback aggregates, metrics, and drift window are local-process only; replicas need shared gateway and telemetry infrastructure.
-- Padded Transformers batching is implemented, but no speedup is claimed until measured on the target model, hardware, batch mix, and runtime.
-- The OpenAI-compatible adapter targets the portable chat-completions subset; vendor extensions and tokenization details vary.
-- Human review is an explicit outcome only, not a durable case-management integration.
-
-See [limitations](docs/limitations.md) for details.
-
-## Roadmap
-
-Pinned datasets, replay, calibration, dynamic batching, local-server backends, adaptive routing, and single-process production guardrails are complete. Future work centers on distributed scheduling, durable review/feedback workflows, semantic retrieval, and multi-host load testing. See [ROADMAP](ROADMAP.md).
+The architecture and test evidence can be described today. Replace every quality, latency, throughput, savings, recall, and scale placeholder with a link to a real immutable run. Never present fake-mode values as model evidence. See [portfolio notes](docs/portfolio-notes.md).

@@ -14,8 +14,8 @@ outputs
 model-cache
 data/downloads
 data/indexes
+data/state
 *.safetensors
 *.bin
 *.pt
 .env
-

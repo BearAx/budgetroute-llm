@@ -114,4 +114,16 @@ class RetrievalService:
             "dimension": self.index.embedder.dimension,
             "index_type": self.config.index_type,
             "index_path": str(self.config.index_path),
+            "embedding_model_id": self.config.embedding_model_id,
+            "embedding_revision": self.config.embedding_revision,
+            "approximate": self.config.index_type == "faiss_hnsw",
+            "hnsw": (
+                {
+                    "neighbors": self.config.hnsw_neighbors,
+                    "ef_construction": self.config.hnsw_ef_construction,
+                    "ef_search": self.config.hnsw_ef_search,
+                }
+                if self.config.index_type == "faiss_hnsw"
+                else None
+            ),
         }

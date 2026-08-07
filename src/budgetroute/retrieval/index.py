@@ -130,3 +130,29 @@ class FaissCosineIndex(ExactCosineIndex):
             for score, index in zip(scores[0], indices[0], strict=True)
             if index >= 0
         ]
+
+
+class FaissHNSWIndex(FaissCosineIndex):
+    """Approximate cosine retrieval using FAISS HNSW with explicit search controls."""
+
+    def __init__(
+        self,
+        embedder: EmbeddingProvider,
+        *,
+        neighbors: int = 32,
+        ef_construction: int = 80,
+        ef_search: int = 64,
+    ) -> None:
+        super().__init__(embedder)
+        self.neighbors = neighbors
+        self.ef_construction = ef_construction
+        self.ef_search = ef_search
+
+    def _build_faiss(self) -> None:
+        faiss = self._require_faiss()
+        self._faiss_index = faiss.IndexHNSWFlat(
+            self.embedder.dimension, self.neighbors, faiss.METRIC_INNER_PRODUCT
+        )
+        self._faiss_index.hnsw.efConstruction = self.ef_construction
+        self._faiss_index.hnsw.efSearch = self.ef_search
+        self._faiss_index.add(np.ascontiguousarray(self.embeddings, dtype=np.float32))

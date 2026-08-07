@@ -1,53 +1,75 @@
 # Deployment
 
-## Loopback development
+## Development
 
 ```bash
 python -m budgetroute serve --config configs/serving/fake.yaml
 ```
 
-Replace the config with `cpu.yaml` or `gpu.yaml` after installing Transformers dependencies and validating with `doctor`. Model caches belong outside Git or under ignored `model-cache/`.
+Loopback fake mode may run without authentication. Replace the config only after installing required extras and running `doctor`, `validate-config`, and focused compatibility probes.
 
-## Authenticated service
+## Single-host replica deployment
 
-`configs/serving/secure.yaml` is a safe starting point for a non-loopback single-instance service. It requires a secret from `BUDGETROUTE_API_KEY`, rejects unknown Host headers, rate-limits identities, bounds body/prompt/queue sizes, uses request deadlines, and enables aggregate monitoring/feedback.
+`configs/serving/distributed.yaml` is the reference Phase 6 profile. It combines tenant scopes, trusted hosts, an explicit external TLS boundary, SQLite WAL coordination, durable feedback/reviews/audit, bounded batching, adaptation storage, and narrow content rules.
 
-```powershell
-$env:BUDGETROUTE_API_KEY = (New-Guid).Guid + (New-Guid).Guid
-python -m budgetroute security-check --config configs/serving/secure.yaml
-python -m budgetroute serve --config configs/serving/secure.yaml
+1. Provision a cryptographically random key of at least 32 bytes per subject in a secret manager. Inject the tenant JSON through `BUDGETROUTE_TENANT_KEYS_JSON`; never put it in YAML, images, `.env`, logs, or GitHub Actions output.
+2. Assign every process a stable `BUDGETROUTE_REPLICA_ID`.
+3. Put `data/state/budgetroute.db` and the calibration registry on persistent local storage accessible to every process on that host. Back them up consistently.
+4. Replace `budgetroute.local` with the real DNS name in `api.trusted_hosts`.
+5. Terminate HTTPS at a trusted proxy/load balancer and restrict direct access to the application port, or set an existing certificate/key pair in `api.tls_certfile`/`api.tls_keyfile`.
+6. Run the exact-environment checks before starting:
+
+```bash
+python -m budgetroute validate-config --config configs/serving/distributed.yaml
+python -m budgetroute security-check --config configs/serving/distributed.yaml
+python -m budgetroute audit-check --config configs/serving/distributed.yaml
+python -m budgetroute serve --config configs/serving/distributed.yaml
 ```
 
-Change `api.trusted_hosts` to real DNS names before deployment. Put TLS, IP/network policy, shared quotas, access logs, and user authorization at a trusted gateway. Store the API key in a secret manager or orchestrator, rotate it, and never place it in YAML, `.env`, shell history, images, or GitHub Actions logs.
+Health/readiness remain unauthenticated for orchestrator probes. Protected endpoints accept `Authorization: Bearer` or `X-API-Key`; prefer Bearer. The scoped tenant principal, not the client IP, controls shared quota and record visibility.
 
-Health/readiness remain unauthenticated for orchestrator probes. `/v1/*` and `/metrics` require authentication when enabled. The implementation accepts `Authorization: Bearer <key>` or `X-API-Key`; prefer Bearer. Error bodies are sanitized, and generated internal cascade answers are not exposed.
+## Coordination semantics
 
-## Dynamic scheduling
+The local queue is per process. The SQLite lease count is global across processes using the same database; active requests renew their leases and expiry recovers capacity from crashed processes. The tenant fixed-window quota is also transactional and shared. This bounds admitted requests; it does not persist prompt bodies or replay work after a disconnected client.
 
-Enable `batching.enabled` to use the bounded full-pipeline scheduler. Tune maximum batch size, first-item wait, queue capacity, admission timeout, and request deadline with a representative live load test. Short waits reduce tail latency; longer waits may improve accelerator utilization. A queue rejection returns HTTP 503 with `Retry-After`; a deadline returns 504. Clients should use bounded exponential backoff and idempotent request IDs.
+Use SQLite only on a reliable single host/filesystem. For Kubernetes replicas on different nodes or multi-region service, implement `OperationalStore` with PostgreSQL/Redis or an equivalent transactional system. Preserve atomic quota increments, lease expiry, idempotent feedback, optimistic review transitions, and ordered audit records. Do not mount SQLite on an arbitrary network filesystem and call it distributed coordination.
 
-Scheduler, rate limit, metrics, drift baseline, and feedback state are per process. Multiple workers or replicas require a gateway/shared limiter and centralized metrics. Do not interpret cache replay or fake timing as scheduling capacity.
+## TLS and network policy
 
-## Local OpenAI-compatible runtimes
+Non-loopback startup fails unless authentication is configured and one TLS mode is explicit. With external termination:
 
-`configs/serving/local-openai-compatible.yaml` expects chat-completions servers at loopback `/v1` roots. It can target vLLM, llama.cpp server, Ollama's compatible endpoint, or another server implementing the required response subset. Start and secure those runtimes separately, align the configured model ID with each server, then run `doctor`.
+- expose only the proxy publicly;
+- allow the proxy to reach the application on a private interface/network;
+- validate forwarding/header policy and request-size limits at both layers;
+- secure model-runtime ports so only BudgetRoute can reach them;
+- set HSTS at the HTTPS edge and rotate certificates normally.
 
-Local HTTP is allowed only for loopback. Remote model endpoints require `allow_remote_endpoint: true`, HTTPS, and an explicit credential environment variable when needed. Remote use sends prompts across a new trust boundary; review retention, residency, provider authentication, TLS validation, and incident handling first.
+Built-in Uvicorn TLS is useful for controlled deployments but is not a replacement for edge DDoS protection, certificate automation, WAF, or service-mesh identity.
 
-## Monitoring and feedback
+## Review, feedback, audit, and adaptation
 
-`GET /metrics` emits Prometheus text for request/error/review counts, latency sum, drift state, and scheduler counters. `GET /v1/monitoring` exposes a sanitized snapshot. No prompt, answer, feedback note, or request identifier is retained by `RuntimeMonitor`.
+Human-review responses create a durable case only when `api.review_enabled` is true. Review-scoped subjects can list their tenant cases, claim one, and resolve it with an optimistic `expected_version`; admins can operate across tenants. Resolution can create a correctness label without duplicating an existing feedback record.
 
-The default automatic drift baseline freezes at the configured minimum sample count. Production deployments should create a representative, reviewed baseline, alert on sustained—not single-window—changes, and require holdout evaluation plus rollback criteria before recalibration. `POST /v1/feedback` stores aggregate correctness only; use an authenticated durable system for labels needed in training.
+`/v1/audit` returns retained application events and `/v1/audit/verify` checks their hash chain. Run `audit-check` regularly and export audit records to a separately controlled append-only archive if compliance or strong non-repudiation matters. Database-level compromise can replace the local chain.
 
-## Docker
+Adaptation remains an operator action. Back up the registry, require the configured minimum labeled sample count, inspect candidate/holdout metrics and change points, promote only through the command, and test rollback. A promoted calibrator is not automatically wired into every separately configured policy; point the serving profile at the active artifact as part of the reviewed deployment release.
 
-Set `BUDGETROUTE_API_KEY` in the invoking environment, then run `docker compose up --build`. Compose refuses a missing key. The CPU-safe fake service uses Python 3.12 slim, installs API/reporting/learned dependencies without model downloads, runs as an unprivileged user, binds the authenticated secure profile, and probes `/healthz`.
+## Monitoring and load
 
-For real CPU execution, install the Transformers extra in a derived image and mount a read/write Hugging Face cache at runtime. For GPU, use an NVIDIA CUDA-compatible base/runtime, an appropriate CUDA-enabled PyTorch wheel, NVIDIA Container Toolkit, explicit device allocation, and models sized for VRAM. For model servers, use separate least-privilege containers/networks and expose runtime ports only to BudgetRoute.
+`GET /metrics` includes local request/latency/drift/scheduler metrics and shared operational counters. `GET /v1/monitoring` includes mean/quantile/category drift and a shared recent-feature summary. Alerts should require sustained evidence and combine service, model-runtime, database, host, and business-label telemetry.
 
-## GitHub repository security
+Before setting replicas or queue limits, run an authorized steady-state load matrix against the exact deployment. Vary one relevant dimension at a time, include warm-up, preserve load artifacts, inspect overload and tail latency, then re-run after any scaling change. The generated replica multiplier is advisory only.
 
-The repository contains Dependabot configuration plus CodeQL, dependency-review, and `pip-audit` workflows. Private vulnerability reporting and dependency alerts are enabled in repository settings. For a solo portfolio repository, review branch protection carefully: requiring another person's approval can prevent the owner from merging. At minimum, configure a ruleset for `main` that blocks force pushes/deletions and requires the CI, package, fake smoke, and security checks once their exact check names have completed successfully.
+## Model runtimes
 
-See the root `SECURITY.md` for coordinated disclosure and explicit security limitations.
+OpenAI-compatible profiles target the portable chat-completions subset. Loopback HTTP is permitted. Remote endpoints require explicit opt-in, HTTPS, and environment-backed credentials when applicable. Verify exact server/model revisions with `compatibility-matrix`; servers differ in seeds, tokenization, logprobs, batching, and extensions.
+
+GPU deployments additionally require compatible driver/CUDA/PyTorch versions, appropriate wheels, explicit device allocation, sufficient VRAM, model licenses, cache volumes, and measured batch/quantization/compile settings. Configuration examples are not fit or speed claims.
+
+## Container and repository controls
+
+The supplied image is a non-root, CPU-safe example. Compose requires a legacy API key, runs the secure profile, publishes port 8000 on host loopback only, and persists SQLite state in the `budgetroute-state` named volume. Put a real HTTPS proxy in front before remote use and back up or replace the state volume deliberately. Adapt it explicitly for tenant mode. Real model servers should use separate least-privilege containers and private networks.
+
+GitHub workflows provide CodeQL, dependency review, Dependabot, packaging, offline tests, fake smoke, and dependency audit. Configure a `main` ruleset that blocks deletion/force push and requires the actual passing check names. Enable secret scanning/push protection and private vulnerability reporting. A solo owner should avoid approval rules that make legitimate merges impossible.
+
+See [SECURITY.md](../SECURITY.md) and [limitations](limitations.md).

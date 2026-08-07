@@ -22,6 +22,12 @@ Logistic regression is used when both training classes exist; a dummy classifier
 
 Retrieval runs before final routing. A hit above the configured similarity threshold selects small-with-retrieval; otherwise backend choice falls back to difficulty. This can improve context-dependent quality but adds retrieval latency to all requests and can inject irrelevant text.
 
+## Learned retrieval benefit
+
+`learned_retrieval` predicts whether retrieved context will improve answer quality by a configured minimum delta. Training pairs `always_small` and `retrieval_first` rows for the same request, keeps related `group_id` values in one partition, calibrates on a separate split, and reports untouched test metrics when enough groups exist. The artifact records the label definition, partitions, feature order, source hash, threshold, calibration, warnings, and package versions.
+
+At serving time retrieval runs first, features include similarity/margin evidence, and a positive prediction selects small-with-retrieval. Otherwise routing falls back to ordinary small/large difficulty behavior. This separates retrieval usefulness from the learned small-model-success target and prevents a high similarity score from being treated as proof of benefit.
+
 ## Cascade
 
 The small backend runs first. Transformers confidence is the geometric mean selected-token probability, accompanied by log-probability and entropy signals. If a configured calibration artifact exists, its scalar temperature transforms this raw value before thresholding. Below the selected threshold, the large backend runs and the trace records the initial answer (internally when enabled), escalation reason, extra input/output tokens, and extra latency. High false escalation wastes compute; high false non-escalation harms quality.
@@ -44,4 +50,4 @@ Abstention is a first-class route, not an exception. It trades coverage for sele
 
 ## Human review
 
-Human review is distinct from abstention and records a reason in the execution trace. The response states that an external integration is required. BudgetRoute-LLM does not create a ticket, persist a case, notify a person, or claim that review occurred; deployments must connect this outcome to a durable authenticated workflow and feed reviewed outcomes back through an approved channel.
+Human review is distinct from abstention and records a reason in the execution trace. When review is enabled, the API creates a privacy-minimal durable case in the operational store. Scoped reviewers can tenant-list, claim, and resolve cases using optimistic versions; a resolved correctness outcome can become a delayed label and every mutation is audited. Prompts and answers are intentionally absent, and the project does not notify a person or provide ticketing/SLA management—deployments needing those functions must integrate an external workflow.

@@ -70,7 +70,10 @@ class InferenceEngine:
     def route(self, request: GenerationRequest) -> RouteResult:
         hits: list[RetrievalHit] = []
         retrieval_ms = 0.0
-        should_retrieve = request.requires_retrieval or self.policy.name == "retrieval_first"
+        should_retrieve = request.requires_retrieval or self.policy.name in {
+            "retrieval_first",
+            "learned_retrieval",
+        }
         if should_retrieve:
             if self.retriever is None or not self.retriever.ready:
                 if not request.allow_abstention:

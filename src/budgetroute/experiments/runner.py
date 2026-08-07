@@ -77,6 +77,7 @@ def run_benchmark(config: AppConfig, repository_root: Path | None = None) -> Pat
     all_timings: list[dict[str, Any]] = []
     policy_metrics: dict[str, Any] = {}
     backends: dict[str, Any] = {}
+    total_measurement_wall_ms = 0.0
     measured = _measured_records(records, config.benchmark.measured_runs)
     for policy_name in config.benchmark.policies:
         policy_config = config.routing.model_copy(update={"policy": policy_name})
@@ -88,6 +89,7 @@ def run_benchmark(config: AppConfig, repository_root: Path | None = None) -> Pat
                 0 if config.benchmark.cache.mode == "read_only" else config.benchmark.warmup_runs
             )
             warmup_ms = _warm_up(service, records, warmup_runs, config.benchmark.fake)
+            measurement_started = time.perf_counter_ns()
             predictions, routes, timings = evaluate_records(
                 service,
                 measured,
@@ -95,10 +97,19 @@ def run_benchmark(config: AppConfig, repository_root: Path | None = None) -> Pat
                 batch_size=config.benchmark.batch_size,
                 concurrency=config.benchmark.concurrency,
             )
+            measurement_wall_ms = (time.perf_counter_ns() - measurement_started) / 1_000_000
+            total_measurement_wall_ms += measurement_wall_ms
             all_predictions.extend(predictions)
             all_routes.extend(routes)
             all_timings.extend({"policy": policy_name, **item} for item in timings)
-            policy_metrics[policy_name] = aggregate_metrics(predictions)
+            policy_metrics[policy_name] = aggregate_metrics(
+                predictions,
+                wall_time_ms=measurement_wall_ms,
+                bootstrap_samples=config.benchmark.bootstrap_samples,
+                minimum_samples_for_claims=config.benchmark.minimum_samples_for_claims,
+                quality_threshold=config.benchmark.quality_threshold,
+                seed=config.seed,
+            )
             backends[policy_name] = service.metadata()
             backends[policy_name]["warmup_ms"] = warmup_ms
         finally:
@@ -134,7 +145,14 @@ def run_benchmark(config: AppConfig, repository_root: Path | None = None) -> Pat
             predicted_labels, actual_labels, small_success_probabilities
         )
 
-    metrics = aggregate_metrics(all_predictions)
+    metrics = aggregate_metrics(
+        all_predictions,
+        wall_time_ms=total_measurement_wall_ms,
+        bootstrap_samples=config.benchmark.bootstrap_samples,
+        minimum_samples_for_claims=config.benchmark.minimum_samples_for_claims,
+        quality_threshold=config.benchmark.quality_threshold,
+        seed=config.seed,
+    )
     metrics["policies"] = policy_metrics
     metrics["fake"] = config.benchmark.fake
     errors = [item.model_dump(mode="json") for item in all_predictions if item.error]

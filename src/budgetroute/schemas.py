@@ -33,7 +33,7 @@ class EvaluationType(StrEnum):
 
 
 class GenerationRequest(BaseModel):
-    request_id: str = Field(default_factory=lambda: str(uuid4()))
+    request_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=200)
     prompt: str = Field(min_length=1, max_length=50_000)
     max_new_tokens: int | None = Field(default=None, ge=1, le=4096)
     requires_retrieval: bool = False

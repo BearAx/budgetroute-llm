@@ -1,0 +1,5 @@
+routing:
+  policy: learned_retrieval
+  retrieval_benefit_model_path: outputs/router/retrieval-benefit.joblib
+  # Leave threshold unset to use the calibration-selected artifact value.
+  difficulty_threshold: 0.55

@@ -1,55 +1,82 @@
 # Architecture
 
-## Boundaries and dependency direction
+BudgetRoute-LLM separates research data flow from the operational control plane. The same typed inference service powers benchmarks, CLI demos, and FastAPI; service-only concerns remain outside model and policy implementations.
 
-`schemas.py` and `config.py` define stable typed boundaries. Domain packages depend inward on these types; composition in `inference/service.py` selects concrete implementations. Backends do not import routing, routing does not call generation, evaluators do not own services, and report code reads artifacts rather than rerunning experiments.
-
-The main protocols are `GenerationBackend`, `EmbeddingProvider`, `Retriever`, and `RoutingPolicy`. This makes fake and optional real implementations interchangeable without global registries or import-time model loading.
+```mermaid
+flowchart TB
+    subgraph edge["Service boundary"]
+      A["Tenant credential"] --> B["Scope authorization"]
+      B --> C["Shared quota"]
+      C --> D["Global admission lease"]
+      D --> E["Bounded local batch queue"]
+    end
+    subgraph inference["Inference data plane"]
+      E --> F["Content and metadata policy"]
+      F --> G["Feature extraction"]
+      G --> H["Retrieval"]
+      H --> I["Routing"]
+      I --> J["Backends / abstain / review"]
+    end
+    subgraph control["Durable control plane"]
+      J --> K["Prediction record"]
+      K --> L["Delayed feedback"]
+      J --> M["Review queue"]
+      L --> N["Calibration candidate"]
+      N --> O["Gated promotion / rollback"]
+      M --> P["Audit chain"]
+      L --> P
+    end
+    J --> Q["Benchmark artifacts"]
+```
 
 ## Request lifecycle
 
-1. Pydantic validates prompt length, fields, and enums.
-2. Optional pre-routing retrieval runs for retrieval-required or retrieval-first requests.
-3. `RequestFeatureExtractor` produces deterministic, interpretable values.
-4. The selected policy returns a `RouteDecision` with confidence, reason, feature snapshot, and thresholds.
-5. `InferenceEngine` invokes small, retrieval-assisted small, large, cascade, abstention, or explicit human-review behavior.
-6. Batch execution preserves request order while grouping small work, evaluating cascade confidence, then grouping direct/escalated large work.
-7. Cascade retains the small answer only in internal traces when configured and records escalation tokens/latency separately.
-8. The engine returns a `GenerationResponse` with usage, queue/batch timing, memory, retrieval, cost estimate, and execution traces.
-9. The evaluation harness applies the record's deterministic evaluator and emits prediction/route/timing rows.
+1. FastAPI bounds the body, validates the Host, authenticates an environment-backed credential, and checks the endpoint scope.
+2. `OperationalStore` consumes a tenant quota and, for generation, acquires an expiring global admission lease. SQLite transactions coordinate processes sharing the database.
+3. The local `AsyncInferenceBatcher` applies bounded admission, queue deadlines, ordered batching, and graceful shutdown.
+4. Pydantic validates the request; `ContentPolicy` bounds metadata shape and optionally rejects configured input substrings without echoing content.
+5. `RequestFeatureExtractor` creates deterministic, interpretable features. Retrieval may run before the final policy decision.
+6. A policy returns a `RouteDecision`; `InferenceEngine` executes small, retrieval-assisted small, large, cascade, abstention, or human review.
+7. Output policy runs before release. The response carries route, execution, usage, uncertainty, retrieval, cost estimate, and separated timing.
+8. Monitoring retains bounded aggregate/numeric state. The durable store records a privacy-minimal prediction and creates a review case when configured.
+9. Delayed feedback joins on tenant/request ID. Review and feedback mutations append audit events.
+10. Operator-invoked adaptation evaluates immutable calibration candidates and atomically promotes only candidates that pass explicit gates.
 
-## Backend lifecycle
+## Core boundaries
 
-Backends implement initialize, health, token count, single/batch generate, metadata, and cleanup. Fake backends initialize immediately. Transformers imports, tokenizer/model loading, device checks, quantization, and compilation happen only in `initialize`; importing `budgetroute` never downloads a model. Transformers batch generation uses left padding, one framework call per output-token-limit group, and restores original request order. The OpenAI-compatible adapter targets the portable chat-completions subset and supports loopback vLLM, llama.cpp server, Ollama, and compatible runtimes.
+- `GenerationBackend`: lifecycle, single/batch generation, health, token counting, metadata, and cleanup.
+- `RoutingPolicy`: request features and trusted runtime state to a typed route decision.
+- `Retriever`/index: normalized embeddings and typed chunks to ranked evidence.
+- `OperationalStore`: quotas, leases, metrics, predictions, feedback, review state, and audit verification.
+- `Evaluator`: a benchmark record and answer to deterministic quality evidence.
+- Artifact writers: atomic, unique run output without invented values.
 
-`TrackedBackend` is a transparent decorator with bounded concurrent invocation slots and thread-safe inflight, latency, completion, and error telemetry. Adaptive policies receive snapshots through a trusted callback; clients cannot inject load state through request metadata.
+Fake, Transformers, and OpenAI-compatible backends remain interchangeable. Imports never download or initialize model weights.
 
-The FastAPI lifespan initializes configured services and cleans them up. `/healthz` itself performs no initialization or model probe. `/readyz` reports already-held service state.
+## Scheduling and coordination
+
+Local batching and global admission solve different problems. `AsyncInferenceBatcher` groups work within one process and enforces queue/deadline bounds. SQLite admission leases cap aggregate inflight generation across replicas on one host; a request heartbeat renews active work and expiry recovers capacity after a crashed worker. Fixed-window quotas are transactional per tenant. A database-backed lease is not a durable request queue: prompts are deliberately not persisted and disconnected HTTP work is not replayed.
+
+SQLite uses WAL, foreign keys, busy timeouts, and immediate transactions. It is a credible single-host coordination backend, not multi-host consensus. The protocol makes PostgreSQL/Redis adapters possible without coupling inference code to either product.
+
+## Operational records and privacy
+
+Predictions retain tenant/request IDs, route, raw/calibrated confidence, numeric features, and timestamps. Feedback retains the correctness label. Review cases retain state and correlation metadata, not prompts or generated answers. Audit entries retain actor/action/target/details and link hashes. Secrets never enter these tables.
+
+The audit chain detects edits or broken continuity in retained application events. Retention may remove the old prefix; the first retained event therefore anchors to its historical predecessor hash. The chain is not externally notarized and a database administrator can replace the whole database.
+
+## Adaptation boundary
+
+Online adaptation is intentionally an offline control-plane command, not request-path self-modification. Labels are ordered chronologically, the newest fraction is held out, and candidate temperature calibration is compared with the active calibrator using Brier and ECE gates. Candidate files are immutable; active materialization and the manifest are atomically replaced. Page-Hinkley flags upward error changes but never auto-promotes or auto-rolls back.
+
+Retrieval-benefit learning is a separate artifact because “small model succeeds” and “retrieval improves the answer” are different targets. Paired policy rows define the latter label, related groups remain together, and inference falls back safely when no useful retrieval is predicted.
 
 ## Retrieval
 
-Document loading and deterministic chunking produce typed chunks. An embedder maps text to normalized vectors. `ExactCosineIndex` owns portable NumPy persistence/search, and `RetrievalService` owns timing and score filtering. See `retrieval.md`.
+Document loading and chunking are deterministic. Embedders produce normalized vectors. Exact NumPy and FAISS-flat indexes provide exact inner-product search; FAISS HNSW provides approximate search with explicit graph/search parameters. Portable vectors and chunk metadata persist in NPZ, so an HNSW graph can be rebuilt rather than binding artifacts to a FAISS binary format. Semantic model identifier and exact revision are part of metadata.
 
-## Artifacts
+## Monitoring and artifacts
 
-The experiment runner is the only component that creates a run directory. It writes final files atomically where practical. Reports consume `run.json`, `metrics.json`, and JSONL rows inside that same directory; missing values produce an honest empty state. Ordinary outputs are ignored by Git.
+`RuntimeMonitor` stores a bounded numeric/category window only. Drift combines normalized mean and q10/q50/q90 changes with category total variation. Shared store summaries cover recent durable prediction features. Neither signal proves label, semantic, or safety drift.
 
-## Generation cache and replay
-
-`GenerationCache` stores typed backend generations under SHA-256 content keys. `CachedGenerationBackend` wraps any backend in live collection modes and becomes a model-free backend in read-only mode. Because it implements the same protocol, routing, inference, evaluation, and reporting do not contain cache-specific branches beyond replay timing labels. Live/replay verification compares stable semantic response signatures.
-
-## Router training
-
-Training joins always-small outcomes to prompt/retrieval feature snapshots. Group-aware train, calibration, and test partitions prevent related records from crossing boundaries. The base classifier fits only on train; scalar temperature and serving threshold fit only on calibration; final metrics use test. Persisted artifacts carry the feature order, classifier, calibrator, selected threshold, partitions, source hash, and package versions.
-
-## Scheduling and concurrency
-
-`AsyncInferenceBatcher` owns a capacity-bounded asyncio queue, one deadline measured from the first queued item, size/deadline flush, admission timeout, request deadline, batch result-order mapping, exception propagation, queue metrics, and sentinel-based draining shutdown. It submits the entire pipeline to `InferenceService.generate_batch`, so grouping reaches backend calls. Benchmark `batch_size` and `concurrency` are executed rather than metadata-only.
-
-The scheduler is per process. Backend concurrency slots protect non-thread-safe local models, while OpenAI-compatible backends may use configured parallel HTTP calls. Distributed queues, shared quotas, and autoscaling remain external deployment concerns.
-
-## Operations and security
-
-FastAPI middleware enforces byte limits (including chunked bodies), trusted Host values, optional constant-time API-key checks, per-identity sliding-window limits, and defensive response headers. Non-loopback binding is invalid without authentication. The scheduler maps overload and deadline failures to retryable HTTP responses.
-
-`RuntimeMonitor` retains numeric feature windows and aggregate counters only—not prompts, answers, feedback notes, or identifiers. It exports Prometheus text and a sanitized drift snapshot. Human review is a typed response state; an external durable workflow must consume it.
+Benchmark runs record resolved configuration, hashes, Git/environment state, model revisions, backend metadata, predictions, routes, timings, errors, metrics, and reports. Generation replay implements the backend protocol, allowing policy evaluation over fixed model outcomes while remaining visibly distinct from live systems evidence.

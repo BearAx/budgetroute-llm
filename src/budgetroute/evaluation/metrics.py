@@ -11,11 +11,20 @@ from budgetroute.evaluation.calibration_metrics import (
     reliability_diagram_data,
 )
 from budgetroute.evaluation.routing_metrics import selective_metrics
+from budgetroute.evaluation.uncertainty import grouped_bootstrap_mean
 from budgetroute.profiling.latency import summarize_latencies
 from budgetroute.schemas import PredictionRecord
 
 
-def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
+def aggregate_metrics(
+    predictions: list[PredictionRecord],
+    *,
+    wall_time_ms: float | None = None,
+    bootstrap_samples: int = 1000,
+    minimum_samples_for_claims: int = 100,
+    quality_threshold: float = 0.8,
+    seed: int = 42,
+) -> dict[str, Any]:
     successful = [item for item in predictions if item.error is None]
     qualities = [item.quality_score for item in successful]
     latencies = [item.latency_ms for item in successful]
@@ -38,8 +47,8 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
     for item in successful:
         by_category[item.category].append(item.quality_score)
     route_counts = Counter(item.route.value for item in successful)
-    total_latency_seconds = sum(latencies) / 1000.0
-    outcomes = [int(item.quality_score >= 0.8) for item in successful]
+    measurement_seconds = wall_time_ms / 1000.0 if wall_time_ms is not None else None
+    outcomes = [int(item.quality_score >= quality_threshold) for item in successful]
     confidences = [item.confidence for item in successful]
     selective = selective_metrics(qualities, [item.abstained for item in successful])
     return {
@@ -47,6 +56,22 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
         "successful_requests": len(successful),
         "failed_requests": len(predictions) - len(successful),
         "mean_quality": sum(qualities) / len(qualities) if qualities else None,
+        "mean_quality_confidence_interval": grouped_bootstrap_mean(
+            qualities,
+            [item.group_id or item.example_id for item in successful],
+            samples=bootstrap_samples,
+            seed=seed,
+        ),
+        "scientific_claim_warning": (
+            None
+            if len({item.group_id or item.example_id for item in successful})
+            >= minimum_samples_for_claims
+            else (
+                "too few independent groups for stable comparative claims: "
+                f"{len({item.group_id or item.example_id for item in successful})} < "
+                f"{minimum_samples_for_claims}"
+            )
+        ),
         "accuracy": sum(score == 1.0 for score in qualities) / len(qualities)
         if qualities
         else None,
@@ -95,14 +120,15 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
             "p95_ms": queue_latency.p95_ms,
             "warning": queue_latency.warning,
         },
+        "measurement_wall_ms": wall_time_ms,
         "throughput_requests_per_second": (
-            len(successful) / total_latency_seconds if total_latency_seconds else None
+            len(successful) / measurement_seconds if measurement_seconds else None
         ),
         "input_tokens": sum(item.input_tokens for item in successful),
         "output_tokens": sum(item.output_tokens for item in successful),
         "generated_tokens_per_second": (
-            sum(item.output_tokens for item in successful) / total_latency_seconds
-            if total_latency_seconds
+            sum(item.output_tokens for item in successful) / measurement_seconds
+            if measurement_seconds
             else None
         ),
         "batch_sizes": dict(sorted(Counter(item.batch_size for item in successful).items())),
@@ -130,4 +156,5 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
         "brier_score": brier_score(confidences, outcomes),
         "expected_calibration_error": expected_calibration_error(confidences, outcomes),
         "reliability": reliability_diagram_data(confidences, outcomes),
+        "confidence_correctness_threshold": quality_threshold,
     }

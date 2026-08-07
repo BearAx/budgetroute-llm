@@ -6,6 +6,24 @@ All notable changes follow Keep a Changelog conventions. The project uses semant
 
 No unreleased changes yet.
 
+## [0.6.0] - 2026-08-07
+
+### Added
+
+- Transactional SQLite coordination for replica-shared quotas, global admission leases, aggregate metrics, delayed labels, durable human-review cases, and hash-chained audit events.
+- Environment-backed multi-tenant credentials with scoped inference, feedback, review, and administrative access; tenant data remains isolated at API queries.
+- Chronological delayed-label confidence adaptation with Page-Hinkley change points, immutable candidates, explicit promotion gates, atomic activation, and rollback.
+- Learned retrieval-benefit routing trained from paired baseline/retrieval evidence with group-safe partitions and calibrated thresholds.
+- Revision-pinned Transformers embeddings, optional FAISS HNSW search, runtime compatibility probes, and multi-endpoint HTTP load artifacts.
+- Bootstrap uncertainty intervals, minimum-sample claim warnings, improved numeric/fraction/percentage extraction, phrase-safe keyword evaluation, and measured wall-clock throughput.
+- Configurable prompt/output substring policy and bounded metadata validation, built-in TLS options, explicit external TLS termination, audit verification, and a distributed serving profile.
+
+### Changed
+
+- Runtime drift combines numeric mean/quantile shifts with category-distribution total variation.
+- Security validation now fails non-loopback configurations without scoped authentication and an explicit TLS boundary.
+- Documentation distinguishes mitigated repository limitations from deployment-specific evidence and infrastructure requirements.
+
 ## [0.4.0] - 2026-08-07
 
 ### Added

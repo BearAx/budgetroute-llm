@@ -1,32 +1,53 @@
 # Configuration
 
-`pyproject.toml` is authoritative for packaging and tool settings. Runtime behavior uses typed Pydantic models loaded from YAML.
+Runtime behavior is defined by strict Pydantic models loaded from YAML. `extends` accepts one path or an ordered list; mappings are deep-merged left to right and the current file wins. Missing files, cycles, unknown fields, invalid types, and unsafe combinations fail with actionable errors.
 
-## Composition
+## Main sections
 
-A file may contain `extends` as one path or an ordered path list. Paths resolve relative to the including file first, then the current working directory. Included mappings are deep-merged left to right; the current file wins. Cycles, missing files, non-mapping roots, and invalid types fail with actionable errors.
+- `models`: fake, Transformers, or OpenAI-compatible backend profiles. Real model/tokenizer revisions can be required and are recorded.
+- `retrieval`: corpus/index paths, fake or Transformers embedder, exact/FAISS/HNSW index, exact embedding revision, chunking, score threshold, and HNSW graph/search parameters.
+- `routing`: policy, difficulty/cascade/retrieval thresholds, learned artifacts, load/cost weights, and review behavior.
+- `batching`: local queue size, maximum batch, first-item wait, admission timeout, and end-to-end deadline.
+- `api`: bind address, trusted hosts, request limits, authentication sources, review/feedback switches, and built-in or external TLS boundary.
+- `operations`: memory/SQLite backend, database path, replica ID source, shared quota, global inflight leases, and audit retention.
+- `adaptation`: delayed-label registry, minimum sample count, chronological holdout, Brier/ECE gates, selective target, and Page-Hinkley settings.
+- `content_policy`: optional literal input/output rules plus always-enforced metadata byte/depth/key bounds.
+- `monitoring`: bounded window, baseline size/file, and drift threshold.
+- `benchmark`: dataset, policies, warm-up/measured runs, concurrency/batch size, cache, bootstrap resamples, and minimum sample count for claims.
 
-Model identifiers live only in `configs/models/`. Routing fragments live in `configs/routing/`. Benchmark and serving files compose base/model values and add workload-specific settings.
+## Safety validation
 
-Public dataset specifications live in `configs/datasets/` and pin source, configuration, immutable revision, split, license, homepage, adapter, and prompt version. Model profiles pin model/tokenizer revisions, license identifiers, model-card URLs, precision, and deterministic generation seeds.
+Configuration rejects, among other cases:
 
-## Validation
+- fake/real backend mismatches, missing model IDs, unpinned revisions when pinning is required, and invalid device/precision/quantization combinations;
+- credential-bearing or malformed model-server URLs; remote servers require explicit opt-in and HTTPS;
+- learned policies without artifacts and retrieval policies without retrieval;
+- invalid chunk/HNSW settings and Transformers embeddings without model ID and exact revision;
+- non-loopback API binding without an API credential source and either a certificate/key pair or `external_tls_termination: true`;
+- partial TLS configuration, missing certificate/key files, missing environment credentials at runtime, and unavailable optional dependencies.
 
-Validation rejects missing Transformers/OpenAI-compatible model IDs, malformed or credential-bearing runtime URLs, fake quantization, CPU FP16/quantization, invalid retrieval chunk overlap, missing real embedding IDs, unusable routing weights/probabilities, learned routing without an artifact path, retrieval-first without retrieval, fake mode with real backends, and non-loopback API binding without authentication.
+`external_tls_termination` is an operator assertion, not automatic TLS discovery. It is appropriate only when a trusted proxy/load balancer terminates HTTPS and the application port is network-restricted.
 
-Runtime initialization separately rejects explicit CUDA or BF16 requests unsupported by the installed PyTorch/hardware and missing quantization dependencies. Explicit GPU selection never silently falls back. `device: auto` may select CPU or CUDA and records the result.
+## Credential formats
 
-OpenAI-compatible backends require `base_url` ending at the API root (normally `/v1`). Loopback HTTP is permitted for local runtimes. Non-loopback endpoints require both `allow_remote_endpoint: true` and HTTPS. `api_key_env` names the environment variable; secret values never enter resolved configuration or metadata. `max_concurrency` bounds concurrent backend calls. `request_logprobs` is opt-in because some compatible servers reject that extension. Optional input/output cost-unit rates are estimates used by `budget_aware`, not billing observations.
+Legacy single-key mode names `api.api_key_env`, normally `BUDGETROUTE_API_KEY`. Tenant mode names `api.tenant_keys_env`, normally `BUDGETROUTE_TENANT_KEYS_JSON`. The JSON value has this schema:
 
-Benchmark cache mode is one of `off`, `read_write`, `read_only`, or `refresh`. `read_only` requires an existing cache and never initializes generation models. `refresh` always regenerates and replaces the keyed entry. Real benchmark profiles set `require_pinned_revisions: true`, which rejects unpinned Transformers backends. `routing.learned_success_threshold` can override an artifact threshold; leaving it unset uses the calibration-selected threshold. `routing.cascade_calibrator_path` attaches a portable small-backend confidence calibrator and its selected cascade threshold.
+```json
+{
+  "tenants": [
+    {
+      "tenant_id": "acme",
+      "subject": "reviewer-1",
+      "api_key": "a long random secret",
+      "scopes": ["inference", "feedback", "review"]
+    }
+  ]
+}
+```
 
-`batching` controls API queue enablement, maximum batch/queue sizes, first-item wait, admission timeout, and end-to-end request deadline. Benchmark `batch_size` controls ordered backend grouping and `concurrency` controls concurrent batch workers. `routing.load_aware` uses trusted backend load snapshots. `routing.budget_aware` uses target latency, optional maximum estimated cost units, and quality/latency/cost weights. Human review is opt-in and thresholded.
-
-`monitoring` controls the numeric rolling window, minimum baseline sample count, drift threshold, and optional JSON baseline path. The automatic baseline freezes when the minimum sample count is first reached. For controlled experiments, provide a representative versioned baseline instead.
+Tenant and subject identifiers are bounded strings. Keys and subject/key pairs must be unique; multiple subjects may belong to one tenant. `admin` implies all scopes. Tenant mode is exclusive: when `tenant_keys_env` is configured, an inherited legacy-key variable is not accepted as a global bypass. Credential values are loaded at process construction and compared in constant time. Rotate by changing the secret source and restarting replicas; support overlapping old/new subjects when a no-downtime rotation is needed.
 
 ## Environment overrides
-
-Operational values can be overridden with:
 
 ```text
 BUDGETROUTE_OUTPUT_DIR
@@ -34,6 +55,20 @@ BUDGETROUTE_HOST
 BUDGETROUTE_PORT
 BUDGETROUTE_LOG_LEVEL
 BUDGETROUTE_API_KEY
+BUDGETROUTE_TENANT_KEYS_JSON
+BUDGETROUTE_REPLICA_ID
 ```
 
-The first four values are direct configuration overrides. `BUDGETROUTE_API_KEY` is read only when the selected API configuration names it as the credential source. The API configuration response is sanitized and never includes secret values, backend failure markers, or arbitrary environment variables. The project does not load `.env` implicitly; a shell, container runtime, or orchestrator must provide secrets.
+The first four are direct overrides. The remaining variables are read only when named by the selected config. The project does not implicitly load `.env`; use a shell, secret manager, container runtime, or orchestrator. Sanitized config responses expose credential source names and TLS state, never secret values or arbitrary environment contents.
+
+## Recommended profiles
+
+- `configs/serving/fake.yaml`: local no-network development.
+- `configs/serving/secure.yaml`: authenticated service behind explicit external TLS termination.
+- `configs/serving/distributed.yaml`: tenant scopes, SQLite coordination, durable feedback/review/audit, adaptation registry, and content rules.
+- `configs/retrieval/semantic-hnsw.yaml`: revision-pinned semantic embedding and HNSW fragment; compose it into a serving/benchmark profile.
+- `configs/routing/learned-retrieval.yaml`: learned retrieval-benefit fragment; set its trained artifact path.
+
+Leaving `routing.retrieval_benefit_threshold` unset uses the calibration-selected value stored in the artifact; set it only as an explicit reviewed override.
+
+Run both `validate-config` and `security-check` against the exact deployment config and environment before serving.

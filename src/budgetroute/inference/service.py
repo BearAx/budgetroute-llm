@@ -12,11 +12,12 @@ from budgetroute.backends.openai_compatible import OpenAICompatibleBackend
 from budgetroute.backends.transformers import TransformersBackend
 from budgetroute.config import AppConfig, BackendConfig
 from budgetroute.experiments.cache import GenerationCache
+from budgetroute.inference.content_policy import ContentPolicy
 from budgetroute.inference.engine import InferenceEngine, RouteResult
 from budgetroute.inference.load import BackendLoadSnapshot, BackendLoadTracker, TrackedBackend
 from budgetroute.retrieval.base import EmbeddingProvider
 from budgetroute.retrieval.embeddings import FakeEmbedder, TransformersEmbedder
-from budgetroute.retrieval.index import ExactCosineIndex, FaissCosineIndex
+from budgetroute.retrieval.index import ExactCosineIndex, FaissCosineIndex, FaissHNSWIndex
 from budgetroute.retrieval.service import RetrievalService
 from budgetroute.routing.registry import build_policy
 from budgetroute.routing.training import load_backend_confidence_calibrator
@@ -39,9 +40,24 @@ def _build_retriever(config: AppConfig) -> RetrievalService | None:
     else:
         assert config.retrieval.embedding_model_id is not None
         device = "cuda" if config.mode == "gpu" else "cpu"
-        embedder = TransformersEmbedder(config.retrieval.embedding_model_id, device)
-    index_class = FaissCosineIndex if config.retrieval.index_type == "faiss" else ExactCosineIndex
-    return RetrievalService(config.retrieval, index_class(embedder))
+        embedder = TransformersEmbedder(
+            config.retrieval.embedding_model_id,
+            device,
+            config.retrieval.embedding_revision,
+        )
+    index: ExactCosineIndex
+    if config.retrieval.index_type == "faiss_hnsw":
+        index = FaissHNSWIndex(
+            embedder,
+            neighbors=config.retrieval.hnsw_neighbors,
+            ef_construction=config.retrieval.hnsw_ef_construction,
+            ef_search=config.retrieval.hnsw_ef_search,
+        )
+    elif config.retrieval.index_type == "faiss":
+        index = FaissCosineIndex(embedder)
+    else:
+        index = ExactCosineIndex(embedder)
+    return RetrievalService(config.retrieval, index)
 
 
 class InferenceService:
@@ -51,11 +67,13 @@ class InferenceService:
         engine: InferenceEngine,
         retriever: RetrievalService | None,
         load_trackers: dict[BackendName, BackendLoadTracker],
+        content_policy: ContentPolicy,
     ) -> None:
         self.config = config
         self.engine = engine
         self.retriever = retriever
         self.load_trackers = load_trackers
+        self.content_policy = content_policy
         self._initialized = False
         self.initialization_ms = 0.0
 
@@ -73,17 +91,26 @@ class InferenceService:
     def route(self, request: GenerationRequest) -> RouteResult:
         if not self._initialized:
             self.initialize()
+        self.content_policy.validate_request(request)
         return self.engine.route(request)
 
     def generate(self, request: GenerationRequest) -> GenerationResponse:
         if not self._initialized:
             self.initialize()
-        return self.engine.generate(request)
+        self.content_policy.validate_request(request)
+        response = self.engine.generate(request)
+        self.content_policy.validate_response(response)
+        return response
 
     def generate_batch(self, requests: list[GenerationRequest]) -> list[GenerationResponse]:
         if not self._initialized:
             self.initialize()
-        return self.engine.generate_batch(requests)
+        for request in requests:
+            self.content_policy.validate_request(request)
+        responses = self.engine.generate_batch(requests)
+        for response in responses:
+            self.content_policy.validate_response(response)
+        return responses
 
     def load_snapshot(self) -> dict[BackendName, BackendLoadSnapshot]:
         return {name: tracker.snapshot() for name, tracker in self.load_trackers.items()}
@@ -162,4 +189,10 @@ def build_service(config: AppConfig) -> InferenceService:
         confidence_calibrator=confidence_calibrator,
         cascade_confidence_threshold=cascade_threshold,
     )
-    return InferenceService(config, engine, retriever, load_trackers)
+    return InferenceService(
+        config,
+        engine,
+        retriever,
+        load_trackers,
+        ContentPolicy(config.content_policy),
+    )
