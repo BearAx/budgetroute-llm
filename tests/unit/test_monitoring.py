@@ -31,6 +31,8 @@ def test_runtime_monitor_detects_feature_shift_without_retaining_prompts(
         monitor.record_feedback(FeedbackRecord(request_id="base-0", correct=True, notes="private"))
         snapshot = monitor.snapshot()
         assert snapshot["drift_detected"] is True
+        assert snapshot["drift_method"] == ("mean_and_quantile_shift_plus_category_total_variation")
+        assert snapshot["category_distribution"]
         assert snapshot["counters"]["feedback_total"] == 1
         assert "prompt" not in str(snapshot).lower()
         assert "private" not in str(snapshot)

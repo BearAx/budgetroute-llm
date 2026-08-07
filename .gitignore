@@ -47,6 +47,7 @@ data/downloads/
 data/materialized/
 data/corpora/
 data/indexes/
+data/state/
 outputs/*
 !outputs/.gitkeep
 reports/generated/

@@ -81,13 +81,17 @@ class RetrievalConfig(BaseModel):
     corpus_path: Path = Path("data/sample_corpus")
     index_path: Path = Path("data/indexes/sample-index.npz")
     embedder: Literal["fake", "transformers"] = "fake"
-    index_type: Literal["exact", "faiss"] = "exact"
+    index_type: Literal["exact", "faiss", "faiss_hnsw"] = "exact"
     embedding_model_id: str | None = None
+    embedding_revision: str | None = None
     embedding_dimension: int = Field(default=64, ge=8, le=4096)
     chunk_size: int = Field(default=500, ge=32)
     chunk_overlap: int = Field(default=50, ge=0)
     top_k: int = Field(default=3, ge=1, le=50)
     min_similarity: float = Field(default=0.12, ge=-1.0, le=1.0)
+    hnsw_neighbors: int = Field(default=32, ge=4, le=256)
+    hnsw_ef_construction: int = Field(default=80, ge=8, le=2000)
+    hnsw_ef_search: int = Field(default=64, ge=1, le=2000)
 
     @model_validator(mode="after")
     def validate_retrieval(self) -> RetrievalConfig:
@@ -109,6 +113,7 @@ class RoutingConfig(BaseModel):
         "cascade",
         "load_aware",
         "budget_aware",
+        "learned_retrieval",
     ] = "heuristic"
     seed: int = 42
     small_probability: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -119,6 +124,8 @@ class RoutingConfig(BaseModel):
     retrieval_similarity_threshold: float = Field(default=0.12, ge=-1.0, le=1.0)
     learned_model_path: Path | None = None
     learned_success_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    retrieval_benefit_model_path: Path | None = None
+    retrieval_benefit_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     cascade_calibrator_path: Path | None = None
     retain_initial_answer: bool = True
     target_latency_ms: float = Field(default=1000.0, gt=0.0)
@@ -136,6 +143,8 @@ class RoutingConfig(BaseModel):
             raise ValueError("random routing probabilities must sum to more than zero")
         if self.policy == "learned" and self.learned_model_path is None:
             raise ValueError("learned routing requires learned_model_path")
+        if self.policy == "learned_retrieval" and self.retrieval_benefit_model_path is None:
+            raise ValueError("learned_retrieval routing requires retrieval_benefit_model_path")
         if self.policy == "budget_aware" and (
             self.quality_weight + self.latency_weight + self.cost_weight <= 0
         ):
@@ -170,6 +179,8 @@ class BenchmarkConfig(BaseModel):
     replay_verify_samples: int = Field(default=0, ge=0, le=1000)
     require_pinned_revisions: bool = False
     fake: bool = False
+    bootstrap_samples: int = Field(default=1000, ge=0, le=100_000)
+    minimum_samples_for_claims: int = Field(default=100, ge=1, le=1_000_000)
 
 
 class ApiConfig(BaseModel):
@@ -180,6 +191,7 @@ class ApiConfig(BaseModel):
     max_request_bytes: int = Field(default=1_048_576, ge=1024, le=100_000_000)
     require_api_key: bool = False
     api_key_env: str = "BUDGETROUTE_API_KEY"
+    tenant_keys_env: str | None = None
     rate_limit_requests: int = Field(default=60, ge=1, le=1_000_000)
     rate_limit_window_seconds: float = Field(default=60.0, gt=0.0, le=86_400.0)
     trusted_hosts: list[str] = Field(
@@ -187,13 +199,70 @@ class ApiConfig(BaseModel):
     )
     metrics_enabled: bool = True
     feedback_enabled: bool = False
+    review_enabled: bool = False
+    tls_certfile: Path | None = None
+    tls_keyfile: Path | None = None
+    external_tls_termination: bool = False
 
     @model_validator(mode="after")
     def validate_api(self) -> ApiConfig:
         if not re.fullmatch(r"[A-Z][A-Z0-9_]*", self.api_key_env):
             raise ValueError("api.api_key_env must be an uppercase environment variable name")
+        if self.tenant_keys_env is not None and not re.fullmatch(
+            r"[A-Z][A-Z0-9_]*", self.tenant_keys_env
+        ):
+            raise ValueError("api.tenant_keys_env must be an uppercase environment variable name")
         if not self.trusted_hosts:
             raise ValueError("api.trusted_hosts cannot be empty")
+        if (self.tls_certfile is None) != (self.tls_keyfile is None):
+            raise ValueError("api.tls_certfile and api.tls_keyfile must be configured together")
+        return self
+
+
+class OperationsConfig(BaseModel):
+    backend: Literal["memory", "sqlite"] = "memory"
+    database_path: Path = Path("data/state/budgetroute.db")
+    replica_id_env: str = "BUDGETROUTE_REPLICA_ID"
+    max_global_inflight: int = Field(default=64, ge=1, le=1_000_000)
+    lease_ttl_seconds: float = Field(default=180.0, gt=1.0, le=86_400.0)
+    quota_requests: int = Field(default=1000, ge=1, le=10_000_000)
+    quota_window_seconds: float = Field(default=60.0, gt=0.0, le=86_400.0)
+    audit_retention_events: int = Field(default=100_000, ge=100, le=100_000_000)
+
+    @model_validator(mode="after")
+    def validate_operations(self) -> OperationsConfig:
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", self.replica_id_env):
+            raise ValueError(
+                "operations.replica_id_env must be an uppercase environment variable name"
+            )
+        return self
+
+
+class AdaptationConfig(BaseModel):
+    enabled: bool = False
+    registry_path: Path = Path("data/state/calibration-registry")
+    minimum_labeled_samples: int = Field(default=100, ge=20, le=1_000_000)
+    holdout_fraction: float = Field(default=0.25, gt=0.0, lt=0.5)
+    minimum_brier_improvement: float = Field(default=0.002, ge=0.0, le=1.0)
+    maximum_ece_regression: float = Field(default=0.01, ge=0.0, le=1.0)
+    target_selective_accuracy: float = Field(default=0.8, ge=0.0, le=1.0)
+    change_point_threshold: float = Field(default=5.0, gt=0.0)
+    change_point_delta: float = Field(default=0.005, ge=0.0)
+
+
+class ContentPolicyConfig(BaseModel):
+    enabled: bool = False
+    prompt_blocklist: list[str] = Field(default_factory=list)
+    output_blocklist: list[str] = Field(default_factory=list)
+    max_metadata_json_chars: int = Field(default=20_000, ge=100, le=1_000_000)
+    max_metadata_depth: int = Field(default=6, ge=1, le=32)
+    max_metadata_keys: int = Field(default=100, ge=1, le=100_000)
+
+    @model_validator(mode="after")
+    def validate_content_policy(self) -> ContentPolicyConfig:
+        patterns = [*self.prompt_blocklist, *self.output_blocklist]
+        if any(not item.strip() or len(item) > 500 for item in patterns):
+            raise ValueError("content-policy blocklist items must contain 1-500 characters")
         return self
 
 
@@ -224,10 +293,13 @@ class AppConfig(BaseModel):
     benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
+    adaptation: AdaptationConfig = Field(default_factory=AdaptationConfig)
+    content_policy: ContentPolicyConfig = Field(default_factory=ContentPolicyConfig)
 
     @model_validator(mode="after")
     def validate_composition(self) -> AppConfig:
-        retrieval_policies = {"retrieval_first"}
+        retrieval_policies = {"retrieval_first", "learned_retrieval"}
         if self.routing.policy in retrieval_policies and not self.retrieval.enabled:
             raise ValueError(f"{self.routing.policy} routing requires retrieval.enabled=true")
         if self.mode == "fake" and (
@@ -247,8 +319,23 @@ class AppConfig(BaseModel):
                 raise ValueError(
                     "real benchmark requires pinned model revisions for: " + ", ".join(unpinned)
                 )
+            if (
+                self.retrieval.enabled
+                and self.retrieval.embedder == "transformers"
+                and self.retrieval.embedding_revision is None
+            ):
+                raise ValueError("real benchmark requires a pinned retrieval embedding revision")
         if not _is_loopback_host(self.api.host) and not self.api.require_api_key:
             raise ValueError("non-loopback API binding requires api.require_api_key=true")
+        if (
+            not _is_loopback_host(self.api.host)
+            and self.api.tls_certfile is None
+            and not self.api.external_tls_termination
+        ):
+            raise ValueError(
+                "non-loopback API binding requires built-in TLS or "
+                "api.external_tls_termination=true"
+            )
         return self
 
     def sanitized_summary(self) -> dict[str, Any]:
@@ -269,8 +356,29 @@ class AppConfig(BaseModel):
                 "device": self.large_backend.device,
                 "precision": self.large_backend.precision,
             },
-            "retrieval": self.retrieval.model_dump(mode="json"),
-            "routing": self.routing.model_dump(mode="json"),
+            "retrieval": {
+                "enabled": self.retrieval.enabled,
+                "embedder": self.retrieval.embedder,
+                "index_type": self.retrieval.index_type,
+                "embedding_model_id": self.retrieval.embedding_model_id,
+                "embedding_revision": self.retrieval.embedding_revision,
+                "top_k": self.retrieval.top_k,
+                "min_similarity": self.retrieval.min_similarity,
+                "approximate": self.retrieval.index_type == "faiss_hnsw",
+            },
+            "routing": {
+                "policy": self.routing.policy,
+                "difficulty_threshold": self.routing.difficulty_threshold,
+                "abstain_threshold": self.routing.abstain_threshold,
+                "cascade_confidence_threshold": self.routing.cascade_confidence_threshold,
+                "retrieval_similarity_threshold": self.routing.retrieval_similarity_threshold,
+                "learned_model_configured": self.routing.learned_model_path is not None,
+                "retrieval_benefit_model_configured": (
+                    self.routing.retrieval_benefit_model_path is not None
+                ),
+                "cascade_calibrator_configured": (self.routing.cascade_calibrator_path is not None),
+                "human_review_enabled": self.routing.human_review_enabled,
+            },
             "batching": self.batching.model_dump(mode="json"),
             "api": {
                 "host": self.api.host,
@@ -278,12 +386,46 @@ class AppConfig(BaseModel):
                 "max_prompt_chars": self.api.max_prompt_chars,
                 "max_request_bytes": self.api.max_request_bytes,
                 "authentication_required": self.api.require_api_key,
+                "tenant_credentials_configured": self.api.tenant_keys_env is not None,
                 "rate_limit_requests": self.api.rate_limit_requests,
                 "rate_limit_window_seconds": self.api.rate_limit_window_seconds,
                 "metrics_enabled": self.api.metrics_enabled,
                 "feedback_enabled": self.api.feedback_enabled,
+                "review_enabled": self.api.review_enabled,
+                "tls_configured": self.api.tls_certfile is not None,
+                "external_tls_termination": self.api.external_tls_termination,
             },
-            "monitoring": self.monitoring.model_dump(mode="json"),
+            "monitoring": {
+                "enabled": self.monitoring.enabled,
+                "window_size": self.monitoring.window_size,
+                "minimum_samples": self.monitoring.minimum_samples,
+                "drift_threshold": self.monitoring.drift_threshold,
+                "external_baseline_configured": self.monitoring.baseline_path is not None,
+            },
+            "operations": {
+                "backend": self.operations.backend,
+                "durable": self.operations.backend == "sqlite",
+                "max_global_inflight": self.operations.max_global_inflight,
+                "lease_ttl_seconds": self.operations.lease_ttl_seconds,
+                "quota_requests": self.operations.quota_requests,
+                "quota_window_seconds": self.operations.quota_window_seconds,
+                "audit_retention_events": self.operations.audit_retention_events,
+            },
+            "adaptation": {
+                "enabled": self.adaptation.enabled,
+                "minimum_labeled_samples": self.adaptation.minimum_labeled_samples,
+                "holdout_fraction": self.adaptation.holdout_fraction,
+                "minimum_brier_improvement": self.adaptation.minimum_brier_improvement,
+                "maximum_ece_regression": self.adaptation.maximum_ece_regression,
+            },
+            "content_policy": {
+                "enabled": self.content_policy.enabled,
+                "prompt_rule_count": len(self.content_policy.prompt_blocklist),
+                "output_rule_count": len(self.content_policy.output_blocklist),
+                "max_metadata_json_chars": self.content_policy.max_metadata_json_chars,
+                "max_metadata_depth": self.content_policy.max_metadata_depth,
+                "max_metadata_keys": self.content_policy.max_metadata_keys,
+            },
         }
 
 
@@ -390,6 +532,14 @@ def validate_runtime_config(config: AppConfig) -> None:
             "Transformers execution is configured but PyTorch is not installed; "
             "install the transformers extra"
         )
+    if (
+        config.retrieval.enabled
+        and config.retrieval.embedder == "transformers"
+        and any(importlib.util.find_spec(name) is None for name in ("torch", "transformers"))
+    ):
+        raise ConfigurationError(
+            "Transformers retrieval is configured but torch/transformers are not installed"
+        )
     if transformer_backends:
         import torch
 
@@ -427,15 +577,33 @@ def validate_runtime_config(config: AppConfig) -> None:
             raise ConfigurationError(
                 f"OpenAI-compatible credential environment variable is unset: {backend.api_key_env}"
             )
-    if config.api.require_api_key and not os.environ.get(config.api.api_key_env):
-        raise ConfigurationError(
-            f"API authentication is enabled but {config.api.api_key_env} is unset"
-        )
+    if config.api.require_api_key:
+        if config.api.tenant_keys_env is not None:
+            if not os.environ.get(config.api.tenant_keys_env):
+                raise ConfigurationError(
+                    "tenant authentication is enabled but its credential environment "
+                    "variable is unset"
+                )
+        elif not os.environ.get(config.api.api_key_env):
+            raise ConfigurationError(
+                "API authentication is enabled but its legacy API key environment variable is unset"
+            )
+    if config.api.tls_certfile is not None:
+        assert config.api.tls_keyfile is not None
+        if not config.api.tls_certfile.is_file() or not config.api.tls_keyfile.is_file():
+            raise ConfigurationError("configured TLS certificate or private-key file is missing")
     if config.routing.policy == "learned":
         assert config.routing.learned_model_path is not None
         if not config.routing.learned_model_path.is_file():
             raise ConfigurationError(
                 f"learned router artifact does not exist: {config.routing.learned_model_path}"
+            )
+    if config.routing.policy == "learned_retrieval":
+        assert config.routing.retrieval_benefit_model_path is not None
+        if not config.routing.retrieval_benefit_model_path.is_file():
+            raise ConfigurationError(
+                "retrieval-benefit artifact does not exist: "
+                f"{config.routing.retrieval_benefit_model_path}"
             )
     if (
         config.routing.cascade_calibrator_path is not None
@@ -450,7 +618,10 @@ def validate_runtime_config(config: AppConfig) -> None:
             f"read-only generation cache does not exist: {config.benchmark.cache.directory}"
         )
     if config.retrieval.enabled:
-        if config.retrieval.index_type == "faiss" and importlib.util.find_spec("faiss") is None:
+        if (
+            config.retrieval.index_type.startswith("faiss")
+            and importlib.util.find_spec("faiss") is None
+        ):
             raise ConfigurationError("FAISS index requested but faiss is not installed")
         if not config.retrieval.index_path.is_file() and not config.retrieval.corpus_path.exists():
             raise ConfigurationError(

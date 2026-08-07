@@ -71,3 +71,29 @@ def test_non_loopback_api_requires_authentication(fake_config: AppConfig) -> Non
                 "api": {**fake_config.api.model_dump(), "host": "0.0.0.0"},
             }
         )
+
+
+def test_non_loopback_api_requires_an_explicit_tls_boundary(fake_config: AppConfig) -> None:
+    with pytest.raises(ValidationError, match="built-in TLS or"):
+        AppConfig.model_validate(
+            {
+                **fake_config.model_dump(mode="python"),
+                "api": {
+                    **fake_config.api.model_dump(),
+                    "host": "0.0.0.0",
+                    "require_api_key": True,
+                },
+            }
+        )
+    valid = AppConfig.model_validate(
+        {
+            **fake_config.model_dump(mode="python"),
+            "api": {
+                **fake_config.api.model_dump(),
+                "host": "0.0.0.0",
+                "require_api_key": True,
+                "external_tls_termination": True,
+            },
+        }
+    )
+    assert valid.api.external_tls_termination is True

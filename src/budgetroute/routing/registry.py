@@ -10,6 +10,7 @@ from budgetroute.routing.cascade import CascadePolicy
 from budgetroute.routing.heuristic import HeuristicPolicy, RetrievalFirstPolicy
 from budgetroute.routing.learned import LearnedPolicy
 from budgetroute.routing.policies import AlwaysLargePolicy, AlwaysSmallPolicy, RandomPolicy
+from budgetroute.routing.retrieval_learned import LearnedRetrievalPolicy
 from budgetroute.schemas import BackendName
 
 
@@ -43,4 +44,11 @@ def build_policy(
         if load_provider is None or small_backend is None or large_backend is None:
             raise ValueError("budget-aware routing requires load telemetry and backend costs")
         return BudgetAwarePolicy(config, small_backend, large_backend, load_provider)
+    if config.policy == "learned_retrieval":
+        assert config.retrieval_benefit_model_path is not None
+        return LearnedRetrievalPolicy(
+            config.retrieval_benefit_model_path,
+            config.retrieval_benefit_threshold,
+            config.difficulty_threshold,
+        )
     raise ValueError(f"unknown routing policy: {config.policy}")

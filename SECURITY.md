@@ -1,21 +1,36 @@
 # Security policy
 
-Use [GitHub private vulnerability reporting](https://github.com/BearAx/budgetroute-llm/security/advisories/new). Include the affected version, impact, reproduction conditions, and a minimal proof of concept. Do not include real credentials, private prompts, model outputs containing personal data, or unrelated system data.
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/BearAx/budgetroute-llm/security/advisories/new). Include the affected version, impact, reproduction conditions, and a minimal proof of concept. Never include real credentials, private prompts, personal data, or unrelated system data. If the private form is unavailable, open a minimal public issue requesting a private channel without exploit details.
 
-You should receive acknowledgement within seven days. Please allow a reasonable coordinated-disclosure window while impact and remediation are verified. Do not open a public issue with exploit details. If the private form is unavailable, open a minimal issue requesting a private channel without disclosing the vulnerability.
+Acknowledgement is targeted within seven days. Security fixes target the latest released minor version; arbitrary downstream model servers and modified deployments are unsupported.
 
-Security fixes target the latest released minor version. Older snapshots and arbitrary downstream model servers are unsupported.
+## Repository security baseline
 
-## Security baseline
+- Dependabot covers Python, Docker, and GitHub Actions.
+- CI runs CodeQL extended analysis, dependency review, packaging/tests, and `pip-audit`.
+- Generated credentials, operational SQLite files, calibration registries, model/data caches, indexes, and experiment outputs are ignored.
+- Runtime configuration can be audited without printing secrets using `budgetroute security-check`.
 
-- GitHub dependency alerts, automated security fixes, and private vulnerability reporting are enabled at repository level.
-- Dependabot monitors Python, GitHub Actions, and Docker dependencies.
-- CI runs CodeQL's extended Python suite, dependency review, and `pip-audit`.
-- The API supports optional bearer/API-key authentication, bounded queues, deadlines, per-process rate limiting, body/prompt limits, trusted Host validation, sanitized errors/configuration, and defensive response headers. Rate limits use process-pseudonymized client hosts, keeping credentials out of limiter state.
-- OpenAI-compatible runtime credentials are read only from named environment variables. Non-loopback model endpoints require explicit opt-in and HTTPS.
+Repository owners should enable private vulnerability reporting, Dependabot alerts/updates, secret scanning, and push protection. Protect `main` against force-push/deletion and require the real CI/package/security checks. Pin third-party Actions by immutable commit where practical and review automated dependency updates before merging.
 
-Run `python -m budgetroute security-check --config <serving-config>` before deployment. Keep secrets in an orchestrator or secret manager, terminate TLS at a trusted reverse proxy, restrict network access to model runtimes, and collect logs/metrics without prompt bodies.
+## Service controls implemented here
 
-## Important limitations
+- Constant-time legacy or tenant credential comparison; environment-only secret sources.
+- Tenant principals and inference/feedback/review/admin scopes with tenant-scoped operational queries.
+- Trusted Host validation, body/prompt/metadata bounds, defensive headers, non-reflective validation/config/domain errors, fixed-window tenant quotas, local queue bounds/deadlines, and renewable global admission leases.
+- Required authentication plus an explicit built-in or external TLS boundary for non-loopback binding.
+- Configurable literal prompt/metadata and complete serialized-response blocklists that reject without echoing content.
+- Privacy-minimal predictions, delayed feedback, durable review transitions, shared metrics, and hash-chained application audit events.
+- Remote OpenAI-compatible endpoints disabled by default; explicit opt-in requires HTTPS, and credentials are read from named environment variables.
 
-This remains research software, not an authorization or content-safety boundary. API keys provide service authentication, not per-resource authorization. Rate limits, drift windows, feedback aggregates, and queues are process-local. The project does not implement tenant isolation, distributed quotas, durable audit storage, prompt-injection defenses, malware scanning, model-output policy enforcement, or a durable human-review queue. Add controls appropriate to the data and threat model before untrusted or sensitive use.
+## Required deployment controls
+
+Use a secret manager and rotate subject keys. Expose only an HTTPS edge, restrict direct application/model/database access, define data retention and backup policy, centralize logs without prompts, monitor authentication/quota/audit failures, and rehearse rollback/incident response. Use an external identity provider for user lifecycle/MFA, PostgreSQL/Redis for multi-host coordination, and a separately controlled append-only audit sink when the threat model requires them.
+
+The built-in literal rules are narrow defense in depth. They do not solve prompt injection, jailbreaks, sensitive-data inference, factuality, malware, or model-output safety. Add task-specific moderation/guardrails, sandboxing, egress controls, human review, red-team tests, and legal/privacy controls appropriate to the data.
+
+Learned routing artifacts use `joblib`, which can execute code while loading. Train them locally or obtain them from a trusted, integrity-verified source; never load an untrusted artifact.
+
+## Honest boundary
+
+BudgetRoute-LLM is research software, not a certified authorization, safety, privacy, or compliance product. SQLite tenant rows provide application-level isolation on one database; they are not separate encryption domains. The audit chain detects retained-row mutation but is not externally notarized. TLS termination, identity federation, DDoS/WAF protection, host hardening, database access control, and multi-region resilience remain deployment responsibilities.

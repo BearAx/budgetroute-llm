@@ -31,3 +31,7 @@ class OverloadError(BudgetRouteError):
 
 class RequestDeadlineError(BudgetRouteError):
     """A request exceeded its configured queue or execution deadline."""
+
+
+class ContentPolicyError(BudgetRouteError):
+    """A request or generated response violated an explicitly configured policy."""

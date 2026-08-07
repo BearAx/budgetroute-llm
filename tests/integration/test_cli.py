@@ -22,7 +22,7 @@ def test_cli_validation_inspection_doctor_and_demo(project_root: Path) -> None:
 
     doctor = runner.invoke(app, ["doctor", "--config", str(config)])
     assert doctor.exit_code == 0, doctor.output
-    assert '"budgetroute_version": "0.4.0"' in doctor.output
+    assert '"budgetroute_version": "0.6.0"' in doctor.output
 
     security = runner.invoke(app, ["security-check", "--config", str(config)])
     assert security.exit_code == 0, security.output

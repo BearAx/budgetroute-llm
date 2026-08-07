@@ -22,6 +22,34 @@ api:
   trusted_hosts: [localhost, 127.0.0.1, testserver]
   metrics_enabled: true
   feedback_enabled: false
+  review_enabled: false
+  external_tls_termination: false
+operations:
+  backend: memory
+  database_path: data/state/budgetroute.db
+  replica_id_env: BUDGETROUTE_REPLICA_ID
+  max_global_inflight: 64
+  lease_ttl_seconds: 180
+  quota_requests: 1000
+  quota_window_seconds: 60
+  audit_retention_events: 100000
+adaptation:
+  enabled: false
+  registry_path: data/state/calibration-registry
+  minimum_labeled_samples: 100
+  holdout_fraction: 0.25
+  minimum_brier_improvement: 0.002
+  maximum_ece_regression: 0.01
+  target_selective_accuracy: 0.8
+  change_point_threshold: 5.0
+  change_point_delta: 0.005
+content_policy:
+  enabled: false
+  prompt_blocklist: []
+  output_blocklist: []
+  max_metadata_json_chars: 20000
+  max_metadata_depth: 6
+  max_metadata_keys: 100
 monitoring:
   enabled: true
   window_size: 500
@@ -65,3 +93,5 @@ benchmark:
     directory: outputs/cache/generations
   replay_verify_samples: 0
   fake: true
+  bootstrap_samples: 1000
+  minimum_samples_for_claims: 100

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import os
@@ -11,6 +12,7 @@ from typing import Any
 import typer
 
 from budgetroute import __version__
+from budgetroute.adaptation.online import CalibrationRegistry
 from budgetroute.config import AppConfig, load_config, validate_runtime_config
 from budgetroute.environment import collect_environment, writable_directory
 from budgetroute.evaluation.dataset import (
@@ -24,17 +26,22 @@ from budgetroute.experiments.runner import collect_baselines as collect_baseline
 from budgetroute.experiments.runner import replay_benchmark as run_replay_benchmark
 from budgetroute.experiments.runner import run_benchmark
 from budgetroute.inference.service import build_service
+from budgetroute.operations.auth import TenantAuthenticator
+from budgetroute.operations.store import build_store
 from budgetroute.reporting.report import generate_report, latest_run_directory
 from budgetroute.retrieval.base import EmbeddingProvider
 from budgetroute.retrieval.embeddings import FakeEmbedder, TransformersEmbedder
-from budgetroute.retrieval.index import ExactCosineIndex, FaissCosineIndex
+from budgetroute.retrieval.index import ExactCosineIndex, FaissCosineIndex, FaissHNSWIndex
 from budgetroute.retrieval.service import RetrievalService
+from budgetroute.routing.retrieval_training import train_retrieval_benefit_router
 from budgetroute.routing.training import evaluate_router as evaluate_router_artifact
 from budgetroute.routing.training import (
     train_backend_confidence_calibrator as train_confidence_artifact,
 )
 from budgetroute.routing.training import train_router as train_router_artifact
 from budgetroute.schemas import GenerationRequest
+from budgetroute.validation.compatibility import run_compatibility_matrix
+from budgetroute.validation.load import run_load_test
 
 app = typer.Typer(
     name="budgetroute",
@@ -89,6 +96,11 @@ def security_check(
 ) -> None:
     """Audit deployment-sensitive settings without printing secret values."""
     loaded = load_config(config)
+    validate_runtime_config(loaded)
+    authenticator = TenantAuthenticator(loaded.api)
+    legacy_secret = (
+        os.environ.get(loaded.api.api_key_env) if loaded.api.tenant_keys_env is None else None
+    )
     try:
         host_is_loopback = (
             loaded.api.host.lower() == "localhost"
@@ -105,8 +117,25 @@ def security_check(
         {
             "name": "api_key_available",
             "passed": not loaded.api.require_api_key
-            or bool(os.environ.get(loaded.api.api_key_env)),
-            "detail": f"credential source: {loaded.api.api_key_env}",
+            or bool(
+                os.environ.get(
+                    loaded.api.tenant_keys_env
+                    if loaded.api.tenant_keys_env is not None
+                    else loaded.api.api_key_env
+                )
+            ),
+            "detail": (
+                f"active credential source: {loaded.api.tenant_keys_env or loaded.api.api_key_env}"
+            ),
+        },
+        {
+            "name": "credential_validation",
+            "passed": not loaded.api.require_api_key
+            or (legacy_secret is None or len(legacy_secret) >= 16),
+            "detail": {
+                **authenticator.sanitized_summary(),
+                "minimum_legacy_key_characters": 16,
+            },
         },
         {
             "name": "bounded_admission",
@@ -117,6 +146,32 @@ def security_check(
             "name": "trusted_hosts",
             "passed": bool(loaded.api.trusted_hosts) and "*" not in loaded.api.trusted_hosts,
             "detail": "wildcard Host headers are not allowed",
+        },
+        {
+            "name": "tls_boundary",
+            "passed": host_is_loopback
+            or loaded.api.tls_certfile is not None
+            or loaded.api.external_tls_termination,
+            "detail": "non-loopback traffic must use built-in or explicitly external TLS",
+        },
+        {
+            "name": "shared_coordination",
+            "passed": host_is_loopback or loaded.operations.backend == "sqlite",
+            "detail": "non-loopback multi-replica profiles use transactional shared state",
+        },
+        {
+            "name": "durable_review_feedback",
+            "passed": not (loaded.api.review_enabled or loaded.api.feedback_enabled)
+            or loaded.operations.backend == "sqlite",
+            "detail": "enabled review/feedback workflows require durable SQLite state",
+        },
+        {
+            "name": "bounded_content_policy",
+            "passed": host_is_loopback or loaded.content_policy.enabled,
+            "detail": (
+                "non-loopback profiles enable metadata bounds and deployment-specific "
+                "literal input/output rules; these do not prove semantic safety"
+            ),
         },
         {
             "name": "repository_security_policy",
@@ -186,10 +241,23 @@ def build_index(
     else:
         assert loaded.retrieval.embedding_model_id is not None
         embedder = TransformersEmbedder(
-            loaded.retrieval.embedding_model_id, "cuda" if loaded.mode == "gpu" else "cpu"
+            loaded.retrieval.embedding_model_id,
+            "cuda" if loaded.mode == "gpu" else "cpu",
+            loaded.retrieval.embedding_revision,
         )
-    index_class = FaissCosineIndex if loaded.retrieval.index_type == "faiss" else ExactCosineIndex
-    service = RetrievalService(loaded.retrieval, index_class(embedder))
+    index: ExactCosineIndex
+    if loaded.retrieval.index_type == "faiss_hnsw":
+        index = FaissHNSWIndex(
+            embedder,
+            neighbors=loaded.retrieval.hnsw_neighbors,
+            ef_construction=loaded.retrieval.hnsw_ef_construction,
+            ef_search=loaded.retrieval.hnsw_ef_search,
+        )
+    elif loaded.retrieval.index_type == "faiss":
+        index = FaissCosineIndex(embedder)
+    else:
+        index = ExactCosineIndex(embedder)
+    service = RetrievalService(loaded.retrieval, index)
     service.initialize(rebuild=True, persist=True)
     _print_json(service.metadata())
 
@@ -285,6 +353,116 @@ def calibrate_confidence(
     _print_json({"artifact": str(output), "calibration": result})
 
 
+@app.command("train-retrieval-router")
+def train_retrieval_router(
+    artifacts: Path = typer.Option(..., exists=True, file_okay=False),
+    output: Path = typer.Option(Path("outputs/router/retrieval-benefit.joblib")),
+    minimum_quality_improvement: float = typer.Option(0.01, min=0.0, max=1.0),
+    seed: int = typer.Option(42),
+    target_precision: float = typer.Option(0.8, min=0.0, max=1.0),
+) -> None:
+    """Train paired evidence for deciding whether retrieval improves small-model quality."""
+    result = train_retrieval_benefit_router(
+        artifacts,
+        output,
+        minimum_quality_improvement=minimum_quality_improvement,
+        seed=seed,
+        target_precision=target_precision,
+    )
+    _print_json({"artifact": str(output), "training": result})
+
+
+@app.command("adapt-confidence")
+def adapt_confidence(
+    config: Path = typer.Option(..., "--config", exists=True, dir_okay=False),
+    limit: int | None = typer.Option(None, min=20),
+) -> None:
+    """Build and gate an online calibration candidate from durable delayed labels."""
+    loaded = load_config(config)
+    if not loaded.adaptation.enabled:
+        raise typer.BadParameter("adaptation.enabled must be true")
+    if loaded.operations.backend != "sqlite":
+        raise typer.BadParameter("online adaptation requires operations.backend=sqlite")
+    store = build_store(loaded.operations)
+    store.initialize()
+    try:
+        observations = store.labeled_observations(limit)
+    finally:
+        store.close()
+    result = CalibrationRegistry(loaded.adaptation).adapt(observations)
+    _print_json(result)
+    if not result["promoted"]:
+        raise typer.Exit(code=2)
+
+
+@app.command("rollback-calibration")
+def rollback_calibration(
+    config: Path = typer.Option(..., "--config", exists=True, dir_okay=False),
+    version: str | None = typer.Option(None),
+) -> None:
+    """Atomically restore a previously promoted online calibration version."""
+    loaded = load_config(config)
+    _print_json(CalibrationRegistry(loaded.adaptation).rollback(version))
+
+
+@app.command("compatibility-matrix")
+def compatibility_matrix(
+    configs: list[Path] = typer.Option(..., "--config", exists=True, dir_okay=False),
+    output_root: Path = typer.Option(Path("outputs/compatibility"), "--output-root"),
+) -> None:
+    """Probe exact runtime configurations and save non-comparative compatibility evidence."""
+    run_directory = run_compatibility_matrix(configs, output_root)
+    _print_json({"run_directory": str(run_directory)})
+
+
+@app.command("load-test")
+def load_test(
+    targets: list[str] = typer.Option(..., "--target"),
+    requests: int = typer.Option(100, min=1, max=1_000_000),
+    concurrency: int = typer.Option(10, min=1, max=100_000),
+    output_root: Path = typer.Option(Path("outputs/load"), "--output-root"),
+    api_key_env: str | None = typer.Option(None),
+    target_latency_ms: float = typer.Option(1000.0, min=0.001),
+    request_timeout_seconds: float = typer.Option(120.0, min=0.001, max=3600.0),
+    warmup_requests: int = typer.Option(0, min=0, max=100_000),
+    allow_insecure_http: bool = typer.Option(False),
+) -> None:
+    """Send real traffic to one or more service endpoints and save load evidence."""
+    if concurrency > requests:
+        raise typer.BadParameter("concurrency cannot exceed requests")
+    run_directory = asyncio.run(
+        run_load_test(
+            targets,
+            request_count=requests,
+            concurrency=concurrency,
+            output_root=output_root,
+            api_key_env=api_key_env,
+            target_latency_ms=target_latency_ms,
+            request_timeout_seconds=request_timeout_seconds,
+            warmup_requests=warmup_requests,
+            allow_insecure_http=allow_insecure_http,
+        )
+    )
+    _print_json({"run_directory": str(run_directory)})
+
+
+@app.command("audit-check")
+def audit_check(
+    config: Path = typer.Option(..., "--config", exists=True, dir_okay=False),
+) -> None:
+    """Verify the retained operational audit hash chain."""
+    loaded = load_config(config)
+    store = build_store(loaded.operations)
+    store.initialize()
+    try:
+        result = store.verify_audit_chain()
+    finally:
+        store.close()
+    _print_json(result)
+    if not result["valid"]:
+        raise typer.Exit(code=1)
+
+
 @app.command("generate-report")
 def generate_report_command(
     run_directory: Path | None = typer.Option(None, "--run-directory", file_okay=False),
@@ -327,6 +505,8 @@ def serve(
         host=loaded.api.host,
         port=loaded.api.port,
         log_level=loaded.api.log_level,
+        ssl_certfile=(str(loaded.api.tls_certfile) if loaded.api.tls_certfile else None),
+        ssl_keyfile=(str(loaded.api.tls_keyfile) if loaded.api.tls_keyfile else None),
     )
 
 

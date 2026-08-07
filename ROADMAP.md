@@ -1,40 +1,44 @@
 # Roadmap
 
-Completed milestones are marked explicitly; unmarked items remain proposals.
+Completed milestones are marked explicitly. Completion means the repository capability and its offline validation exist; it does not imply universal model quality, hardware performance, or production certification.
 
 ## v0.1 — functional benchmark and API (complete)
 
-- [x] Stabilize the fake/Transformers benchmark path and artifact schema.
-- [x] Validate the API and packaging across supported platforms.
-- [x] Validate a small, explicitly non-comparative real-model CPU acceptance run separately from fake outputs.
+- [x] Fake/Transformers benchmark path, typed artifacts, API, packaging, and a non-comparative CPU acceptance run.
 
 ## v0.2 — datasets, replay, and calibration (complete)
 
-- [x] Add licensed, revision-pinned public benchmark adapters and integrity manifests.
-- [x] Add content-addressed baseline collection and model-free replay with agreement verification.
-- [x] Add group-aware train/calibration/test controls, calibrated classifiers, and calibration-only threshold selection.
-- [x] Preserve raw and calibrated confidence plus selective-routing metrics.
+- [x] Licensed revision-pinned datasets, integrity manifests, content-addressed generation replay, group-safe router training, and confidence calibration.
 
 ## v0.3 — scheduling and backends (complete)
 
-- [x] Add bounded deadline-aware API batching and ordered batch benchmark execution.
-- [x] Add true padded Transformers generation while preserving heterogeneous token limits.
-- [x] Add thread-safe load telemetry and load-aware routing.
-- [x] Add an OpenAI-compatible local-runtime backend for vLLM, llama.cpp server, Ollama, and compatible servers.
-- [x] Record requested/enabled compilation and quantization state plus first compiled execution time; keep performance claims gated on real artifacts.
+- [x] Bounded deadline-aware batching, padded Transformers batches, load-aware routing, and local OpenAI-compatible runtimes.
 
 ## v0.4 — operational and research guardrails (complete)
 
-- [x] Add configurable quality/cost/latency multi-objective routing and explicit human-review outcomes.
-- [x] Add queue deadlines, overload rejection, API authentication, trusted hosts, request/rate limits, and defensive headers.
-- [x] Add Prometheus metrics, privacy-preserving aggregate feedback, and rolling feature-shift detection.
-- [x] Add Dependabot, CodeQL, dependency review/audit, and private vulnerability reporting guidance.
+- [x] Multi-objective routing, overload handling, API security controls, Prometheus metrics, feature drift, and GitHub security automation.
 
-## Future research
+## v0.5 — distributed operational control plane (Phase 6, complete)
 
-- Distributed scheduling and shared quotas/telemetry across replicas.
-- Durable human-review and outcome-feedback integrations with audited access controls.
-- Online recalibration with delayed labels, rollback criteria, and change-point detection.
-- Learned retrieval-benefit prediction and semantic retrieval backends.
-- Large-scale live runtime/quantization/compilation compatibility matrices with published immutable artifacts.
-- Multi-host tail-latency load tests, admission-control tuning, and autoscaling policies.
+- [x] Transactional SQLite quotas and expiring global admission leases shared by same-host replicas.
+- [x] Environment-backed tenant credentials, scoped authorization, and tenant-isolated review/feedback queries.
+- [x] Durable delayed labels, human-review cases, shared counters, and hash-chained audit events with verification.
+- [x] Explicit built-in TLS or trusted external TLS termination for non-loopback serving.
+- [x] Configurable prompt/output substring rules and bounded metadata validation without logging rejected content.
+
+## v0.6 — adaptation and deployment validation (Phase 7, complete)
+
+- [x] Chronological delayed-label recalibration, Page-Hinkley change points, gated promotion, immutable versions, and rollback.
+- [x] Learned retrieval-benefit routing from paired outcomes with group-safe partitions and safe fallbacks.
+- [x] Revision-pinned semantic embeddings and optional FAISS HNSW approximate search.
+- [x] Reproducible runtime compatibility probes and multi-endpoint HTTP load artifacts with measured wall throughput.
+- [x] Bootstrap uncertainty, claim-size warnings, stronger deterministic answer extraction, and richer feature/category drift.
+- [x] A documented mitigation matrix for repository, deployment, evidence, and irreducible model-safety limitations.
+
+## Next evidence milestones
+
+- Run and publish large, license-compliant comparisons on named models, datasets, GPUs, and runtime revisions.
+- Implement a PostgreSQL or Redis `OperationalStore` for multi-host coordination; SQLite intentionally targets one shared host/filesystem.
+- Integrate an external identity provider, secret manager, WAF/service mesh, centralized telemetry, and ticketing system for sensitive production use.
+- Add domain-specific semantic/human evaluation and red-team evidence; no generic filter can prove factuality, usefulness, or prompt-injection safety.
+- Validate HNSW recall/latency and autoscaling behavior on the target corpus and fleet before setting production thresholds.

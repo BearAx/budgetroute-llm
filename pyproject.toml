@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "budgetroute-llm"
-version = "0.4.0"
-description = "Quality-aware routing for local language-model inference experiments"
+version = "0.6.0"
+description = "Quality-aware, tenant-aware routing for reproducible language-model inference"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = { file = "LICENSE" }

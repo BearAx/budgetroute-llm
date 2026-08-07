@@ -6,6 +6,8 @@ from fastapi import Depends, Request
 
 from budgetroute.inference.service import InferenceService
 from budgetroute.monitoring.runtime import RuntimeMonitor
+from budgetroute.operations.models import Principal
+from budgetroute.operations.store import OperationalStore
 
 
 def get_service(request: Request) -> InferenceService:
@@ -20,3 +22,17 @@ def get_monitor(request: Request) -> RuntimeMonitor:
 
 
 MonitorDependency = Annotated[RuntimeMonitor, Depends(get_monitor)]
+
+
+def get_store(request: Request) -> OperationalStore:
+    return cast(OperationalStore, request.app.state.operational_store)
+
+
+StoreDependency = Annotated[OperationalStore, Depends(get_store)]
+
+
+def get_principal(request: Request) -> Principal:
+    return cast(Principal, request.state.principal)
+
+
+PrincipalDependency = Annotated[Principal, Depends(get_principal)]

@@ -52,12 +52,27 @@ def token_f1(answer: str, reference: str) -> EvaluationResult:
 
 
 def _extract_number(text: str) -> float | None:
-    match = re.search(r"[-+]?(?:\d+(?:,\d{3})*\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", text)
-    if not match:
+    boxed = re.findall(r"\\boxed\{([^{}]+)\}", text)
+    candidate = boxed[-1] if boxed else text
+    final_markers = re.split(r"(?:final answer|answer is|therefore)\s*[:=]?", candidate, flags=re.I)
+    candidate = final_markers[-1]
+    pattern = (
+        r"[-+]?(?:\d+(?:,\d{3})*\.?\d*|\.\d+)(?:[eE][-+]?\d+)?(?:\s*/\s*[-+]?\d+(?:\.\d+)?)?%?"
+    )
+    matches = re.findall(pattern, candidate)
+    if not matches:
         return None
+    raw = matches[-1].replace(",", "").replace(" ", "")
     try:
-        return float(match.group(0).replace(",", ""))
-    except ValueError:
+        percentage = raw.endswith("%")
+        raw = raw.removesuffix("%")
+        if "/" in raw:
+            numerator, denominator = raw.split("/", 1)
+            value = float(numerator) / float(denominator)
+        else:
+            value = float(raw)
+        return value / 100.0 if percentage else value
+    except (ValueError, ZeroDivisionError):
         return None
 
 
@@ -98,7 +113,10 @@ def keyword(answer: str, keywords: list[str]) -> EvaluationResult:
     if not normalized_keywords:
         score = 0.0
     else:
-        score = sum(item in normalized for item in normalized_keywords) / len(normalized_keywords)
+        padded = f" {normalized} "
+        score = sum(f" {item} " in padded for item in normalized_keywords) / len(
+            normalized_keywords
+        )
     return EvaluationResult(score, "keyword_coverage", normalized)
 
 

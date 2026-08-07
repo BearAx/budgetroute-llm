@@ -4,7 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      # Loopback-only publication: place an HTTPS reverse proxy in front before remote use.
+      - "127.0.0.1:8000:8000"
     environment:
       BUDGETROUTE_HOST: 0.0.0.0
       BUDGETROUTE_PORT: "8000"
@@ -13,4 +14,8 @@ services:
     volumes:
       - ./outputs:/app/outputs
       - ./model-cache:/home/budgetroute/.cache/huggingface
+      - budgetroute-state:/app/data/state
     restart: unless-stopped
+
+volumes:
+  budgetroute-state:

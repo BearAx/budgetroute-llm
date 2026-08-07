@@ -62,8 +62,31 @@ The backend-confidence artifact can be attached with `routing.cascade_calibrator
 
 Length-normalized token likelihood and entropy are genuine model measurements, but neither is automatically a correctness probability. Calibration is task/model/prompt specific. Cache replay supports policy comparisons over fixed model outcomes; it does not reproduce queueing, concurrent contention, thermal drift, or live batching behavior. Confirm final systems conclusions with live runs.
 
+## 5. Train retrieval benefit separately
+
+Paired `always_small` and `retrieval_first` rows from the same compatible run can train the retrieval-benefit artifact:
+
+```bash
+python -m budgetroute train-retrieval-router --artifacts outputs/RUN --output outputs/router/retrieval.joblib
+```
+
+Its label is the retrieval-minus-baseline quality delta, not small-model correctness. Inspect paired coverage, group partitions, calibration warning, threshold, and untouched test metrics. Validate again after changing the corpus, chunker, embedding revision, model, or prompt template.
+
+## 6. Validate delayed-label adaptation
+
+In a service deployment, predictions and later correctness feedback join in the operational store. `adapt-confidence` requires the configured minimum count, uses a chronological tail holdout, compares the candidate with the active calibrator, and writes an immutable candidate whether or not it is promoted.
+
+```bash
+python -m budgetroute adapt-confidence --config configs/serving/distributed.yaml
+python -m budgetroute rollback-calibration --config configs/serving/distributed.yaml
+```
+
+Review candidate Brier/ECE, promotion gates, source hash, label window, and Page-Hinkley change points. A passed gate justifies a controlled deployment test, not automatic global rollout.
+
 ## Batch, concurrency, and runtime matrix
 
 After single-request live/replay agreement is established, create separate resolved configs for each batch size, concurrency, precision, quantization, compiler state, and runtime. Do not change several dimensions inside one unlabeled run. Use enough live requests for stable tail percentiles, retain warm-up/first-compile metadata, and compare only matching model revision, prompt template, dataset, hardware, queue deadlines, and cost-unit definitions.
 
 Cache replay can compare policy quality/cost composition but cannot measure dynamic batching, load-aware routes, model-server contention, queueing, or thermals. Those require live artifacts. The bundled local OpenAI-compatible profile is an integration example, not a compatibility or speed claim for every vLLM, llama.cpp, or Ollama release.
+
+Use `compatibility-matrix` for exact runtime revisions, then `load-test` against authorized deployed endpoints for wall throughput and tail latency. Preserve each artifact and re-test the tool's heuristic replica suggestion rather than treating it as an autoscaling decision.

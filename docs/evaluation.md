@@ -6,9 +6,9 @@ Metrics operate on actual prediction artifacts. A benchmark record explicitly ch
 
 - **Normalized exact match:** lowercase, trim, replace punctuation with spaces, collapse whitespace, then compare equality.
 - **Token F1:** multiset token overlap; harmonic mean of token precision and recall. Two empty answers score 1; one empty side scores 0.
-- **Numeric correctness:** extract the first signed decimal/scientific number and compare with configurable absolute and relative tolerance.
+- **Numeric correctness:** prefer boxed/final-answer/“answer is”/“therefore” spans, then the last signed decimal/scientific number; fractions and percentages are normalized before absolute/relative tolerance comparison.
 - **Classification accuracy:** normalized answer or first normalized token equals the normalized label.
-- **Keyword coverage:** fraction of configured normalized keywords found in the answer.
+- **Keyword coverage:** fraction of configured normalized keyword phrases found on normalized token boundaries.
 - **Abstention correctness:** whether an answer beginning with `ABSTAIN` (or an explicit cannot-answer phrase) matches `must_abstain`.
 - **Task accuracy:** fraction of examples whose deterministic quality score is exactly 1.
 
@@ -35,24 +35,28 @@ The learned label is `small_model_quality >= configured_quality_threshold`. Trai
 - **Expected calibration error:** weighted absolute gap between mean confidence and empirical accuracy across equal-width bins.
 - **Reliability data:** bin boundaries, count, mean confidence, and empirical accuracy, including empty bins.
 
-Transformers backends emit length-normalized token likelihood, sequence log-probability, minimum token log-probability, mean entropy, and vocabulary-normalized entropy. These are model uncertainty signals, not correctness probabilities. Raw confidence remains in artifacts. A scalar temperature calibrator may transform small-model confidence for cascade decisions; the calibrated value is stored separately.
+Transformers backends emit length-normalized token likelihood, sequence log-probability, minimum token log-probability, mean entropy, and vocabulary-normalized entropy. These are model uncertainty signals, not correctness probabilities. Raw confidence remains in artifacts. Brier/ECE correctness labels use the configured benchmark quality threshold. A scalar temperature calibrator may transform small-model confidence for cascade decisions; the calibrated value is stored separately.
 
 Constant predictions, one-class targets, empty inputs, and zero denominators return documented `null`/empty values rather than crashing. On tiny datasets with fewer than six groups or nine samples, training labels its unavoidable in-sample fallback explicitly.
+
+## Sampling uncertainty
+
+Configured deterministic percentile bootstrap resampling operates over independent `group_id` units when available and records confidence intervals for supported aggregate metrics. The benchmark also emits a warning when its independent sample count is below `minimum_samples_for_claims`. Intervals describe the observed sampling process; they do not repair biased or unrepresentative data.
 
 ## Systems metrics
 
 - p50 and p95 total request latency; p99 only with at least 100 samples.
 - scheduler queue, routing, retrieval, generation, escalation, total, and TTFT where supported.
 - actual batch size, configured concurrent batch workers, queue depth/rejections/deadlines for service runs, and backend inflight utilization.
-- throughput from the observed run wall/timing artifacts; batching/concurrency configuration must match before comparison.
+- throughput from actual measured wall time rather than summed per-request latency; batching/concurrency configuration must match before comparison.
 - input/output tokens and generated tokens per second.
 - process RSS and optional peak CUDA allocated memory.
 - failures, escalation count, abstentions, backend and route shares.
 
 Cache replay cannot reproduce queueing or contention and is labeled accordingly. Fake timing validates instrumentation only. Percentile warnings appear below 20 observations.
 
-## Distribution shift and feedback
+## Distribution shift, feedback, and adaptation
 
-The in-process monitor computes a rolling mean shift for numeric request features in units of each frozen baseline standard deviation. It freezes an automatic baseline at `minimum_samples`, or loads a supplied baseline. `drift_score` is the mean feature shift and `drift_detected` compares it with a configured alert threshold. This is an operational warning, not a statistical guarantee or automatic retraining trigger.
+The in-process monitor combines mean and q10/q50/q90 numeric shifts in baseline-standard-deviation units with category-distribution total variation. It freezes an automatic baseline at `minimum_samples`, or loads a supplied baseline. `drift_detected` compares the combined score with a configured threshold. This is an operational warning, not a statistical guarantee or automatic retraining trigger.
 
-The feedback endpoint retains only aggregate correctness counts. Request IDs and notes are accepted for caller-side correlation but not stored by the process. Online recalibration is deliberately not automatic: a deployment must collect delayed labels in an access-controlled system, build group/time-safe calibration data, validate against a holdout, and provide rollback criteria.
+The operational store retains a prediction's tenant/request ID, route, confidence, numeric features, and timestamp, then joins idempotent correctness feedback. Notes are not persisted. Operator-invoked adaptation orders labels by time, trains on the earlier segment, tests the candidate on a held-out tail against the active calibrator, applies Brier/ECE gates, records Page-Hinkley error change points, and supports explicit rollback. Promotion is not proof against future shift.
