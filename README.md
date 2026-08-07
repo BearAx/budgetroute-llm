@@ -293,11 +293,3 @@ See [limitations](docs/limitations.md) for details.
 ## Roadmap
 
 Pinned datasets, replay, calibration, dynamic batching, local-server backends, adaptive routing, and single-process production guardrails are complete. Future work centers on distributed scheduling, durable review/feedback workflows, semantic retrieval, and multi-host load testing. See [ROADMAP](ROADMAP.md).
-
-## Personal contribution
-
-Aleksandr Medvedev designed and implemented the package architecture, offline fake system, backend/runtime abstraction, dynamic scheduler, adaptive routing/retrieval pipeline, deterministic evaluation, calibration/replay, operational monitoring, API security controls, experiment provenance, reporting, tests, CI/security automation, and documentation. Resume wording and a short demo script with placeholders for real measured results are in [portfolio notes](docs/portfolio-notes.md).
-
-## License and citation
-
-MIT © 2026 Aleksandr Medvedev. See [LICENSE](LICENSE). Citation metadata is provided in [CITATION.cff](CITATION.cff); no DOI or publication is claimed.
