@@ -1,0 +1,7 @@
+extends:
+  - real-gpu-mmlu-500-learned-live.yaml
+name: qwen25-mmlu-500-learned-heldout-rtx3060-replay
+benchmark:
+  cache:
+    mode: read_only
+    directory: outputs/cache/real-gpu-mmlu-500-v1

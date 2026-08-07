@@ -1,0 +1,11 @@
+extends:
+  - real-gpu-mmlu-500-live.yaml
+name: qwen25-mmlu-500-learned-heldout-rtx3060-live
+routing:
+  policy: learned
+  learned_model_path: outputs/router/mmlu-500-paired.joblib
+  cascade_calibrator_path: outputs/router/mmlu-500-small-confidence.json
+benchmark:
+  dataset_path: data/materialized/mmlu-test-stratified-500-router-test.jsonl
+  dataset_manifest_path: data/materialized/mmlu-test-stratified-500-router-test.manifest.json
+  policies: [always_small, always_large, learned, cascade]

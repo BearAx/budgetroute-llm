@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import importlib.util
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -333,6 +334,66 @@ def materialize_dataset(
     )
     writer.write_json(
         destination.with_suffix(".manifest.json").name, manifest.model_dump(mode="json")
+    )
+    return manifest
+
+
+def materialize_router_test_split(
+    router_metadata_path: str | Path,
+    dataset_path: str | Path,
+    source_manifest_path: str | Path,
+    output_path: str | Path,
+) -> DatasetManifest:
+    """Write the persisted untouched router test IDs as a hashed benchmark dataset."""
+
+    source = Path(dataset_path)
+    destination = Path(output_path)
+    if source.resolve() == destination.resolve():
+        raise BudgetRouteError("router test split output must differ from its source dataset")
+    parent_manifest = validate_dataset_manifest(source, source_manifest_path)
+    try:
+        metadata = json.loads(Path(router_metadata_path).read_text(encoding="utf-8"))
+        test_ids = metadata["splits"]["test"]["ids"]
+        seed = int(metadata["seed"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise BudgetRouteError(f"invalid router metadata {router_metadata_path}: {exc}") from exc
+    if (
+        not isinstance(test_ids, list)
+        or not test_ids
+        or not all(isinstance(item, str) and item for item in test_ids)
+    ):
+        raise BudgetRouteError("router metadata test IDs must be a non-empty string list")
+    if len(set(test_ids)) != len(test_ids):
+        raise BudgetRouteError("router metadata contains duplicate test IDs")
+
+    records = {record.id: record for record in load_dataset(source)}
+    missing = [record_id for record_id in test_ids if record_id not in records]
+    if missing:
+        raise BudgetRouteError(
+            f"router test split references {len(missing)} IDs absent from the source dataset"
+        )
+    selected = [records[record_id].model_dump(mode="json") for record_id in test_ids]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    writer = ArtifactWriter(destination.parent)
+    writer.write_jsonl(destination.name, selected)
+    manifest = parent_manifest.model_copy(
+        update={
+            "name": f"{parent_manifest.name}-router-test",
+            "record_count": len(selected),
+            "records_sha256": dataset_hash(destination),
+            "selection": {
+                "method": "router_test_split",
+                "offset": 0,
+                "limit": len(selected),
+                "seed": seed,
+                "stratify_by": "group",
+                "parent_records_sha256": parent_manifest.records_sha256,
+            },
+        }
+    )
+    writer.write_json(
+        destination.with_suffix(".manifest.json").name,
+        manifest.model_dump(mode="json"),
     )
     return manifest
 

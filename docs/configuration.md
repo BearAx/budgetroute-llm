@@ -68,6 +68,9 @@ The first four are direct overrides. The remaining variables are read only when 
 - `configs/serving/distributed.yaml`: tenant scopes, SQLite coordination, durable feedback/review/audit, adaptation registry, and content rules.
 - `configs/retrieval/semantic-hnsw.yaml`: revision-pinned semantic embedding and HNSW fragment; compose it into a serving/benchmark profile.
 - `configs/routing/learned-retrieval.yaml`: learned retrieval-benefit fragment; set its trained artifact path.
+- `configs/benchmarks/real-gpu-mmlu-500-live.yaml`: paired small/large outcome collection for router development.
+- `configs/benchmarks/real-gpu-mmlu-500-learned-live.yaml`: live learned/cascade comparison restricted to the persisted router test split.
+- `configs/benchmarks/real-gpu-mmlu-500-learned-replay.yaml`: model-free replay of that held-out comparison from a complete cache.
 
 Leaving `routing.retrieval_benefit_threshold` unset uses the calibration-selected value stored in the artifact; set it only as an explicit reviewed override.
 

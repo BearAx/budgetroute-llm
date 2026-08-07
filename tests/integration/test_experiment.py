@@ -23,7 +23,7 @@ def test_benchmark_report_and_fake_router(
             "output_dir": tmp_path / "outputs",
             "benchmark": fake_config.benchmark.model_copy(
                 update={
-                    "policies": ["always_small", "heuristic", "cascade"],
+                    "policies": ["always_small", "always_large", "heuristic", "cascade"],
                     "fake": True,
                     "cache": fake_config.benchmark.cache.model_copy(
                         update={"directory": tmp_path / "cache"}
@@ -50,6 +50,22 @@ def test_benchmark_report_and_fake_router(
     evaluation = evaluate_router(router_path, run_dir, threshold=0.8)
     assert 0 <= evaluation["accuracy"] <= 1
     assert evaluation["evaluation_scope"] == "test"
+
+    paired_router_path = tmp_path / "paired-router.joblib"
+    paired_metadata = train_router(
+        run_dir,
+        paired_router_path,
+        quality_threshold=0.8,
+        label_strategy="paired_quality",
+    )
+    assert paired_metadata["label_strategy"] == "paired_quality"
+    assert paired_metadata["label_definition"] == (
+        "small_model_quality >= large_model_quality on paired outcomes"
+    )
+    assert paired_metadata["outcome_metrics"]["sample_count"] > 0
+    paired_evaluation = evaluate_router(paired_router_path, run_dir, threshold=0.8)
+    assert paired_evaluation["label_strategy"] == "paired_quality"
+    assert -1 <= paired_evaluation["outcome_metrics"]["quality_delta_vs_always_large"] <= 1
 
     confidence_path = tmp_path / "small-confidence.json"
     confidence = train_backend_confidence_calibrator(run_dir, confidence_path)

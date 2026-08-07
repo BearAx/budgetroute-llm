@@ -27,7 +27,7 @@ Open-ended semantic similarity is not used as the only correctness measure. A fu
 - **Human-review count:** requests explicitly withheld for an external review workflow. It is reported separately from ordinary abstention even though both reduce automated coverage.
 - **Estimated cost units:** sum of policy-selected configured token-cost estimates. This is not an observed bill or energy measurement.
 
-The learned label is `small_model_quality >= configured_quality_threshold`. Training prefers `always_small` artifact rows so route outcomes do not contaminate the label. `group_id` keeps repeated or related examples together. With sufficient groups, training uses disjoint train, calibration, and test partitions: the model fits on train, temperature and serving threshold fit on calibration, and metrics are reported on untouched test. Fake artifacts may train only a clearly identified fake demonstration router.
+Learned routing declares its label strategy. `small_success` uses `small_model_quality >= configured_quality_threshold`; training prefers `always_small` rows so routed outcomes do not contaminate the target. `paired_quality` requires successful `always_small` and `always_large` outcomes and uses `small_model_quality >= large_model_quality`. `group_id` keeps repeated or related examples together. With sufficient groups, training uses disjoint train, calibration, and test partitions: the model fits on train, temperature and serving threshold fit on calibration, and classification plus end-to-end routing outcome metrics are reported on untouched test. Fake artifacts may train only a clearly identified fake demonstration router.
 
 ## Calibration
 

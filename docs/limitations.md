@@ -4,7 +4,7 @@ Phase 6 and 7 reduce the largest architectural gaps, but software cannot erase m
 
 | Area | Repository mitigation | Remaining boundary / required evidence |
 |---|---|---|
-| Tiny development sample | Revision-pinned public adapters, content hashes, group-safe splits, grouped bootstrap intervals, minimum-sample claim warnings, and one published 100-record stratified MMLU study | The published sample is still small; representative domain data, larger samples, repeated studies, domain review, and external validity remain required |
+| Limited development evidence | Revision-pinned public adapters, content hashes, group-safe splits, grouped bootstrap intervals, minimum-sample claim warnings, a 500-pair MMLU collection, and one persisted 100-record held-out routing evaluation | The held-out sample is still drawn from one MMLU development universe; external data, larger samples, repeated studies, domain review, and external validity remain required |
 | Fake backend | Every response/artifact is explicitly fake and workflows match real interfaces | Fake quality, confidence, and latency are never model or capacity evidence |
 | Model/hardware variance | Exact revisions/config/environment metadata, compatibility probes, warm/cold separation, real HTTP load artifacts, and a named RTX 3060/Qwen2.5 result | Quality and speed remain specific to weights, prompt, runtime, drivers, hardware, traffic, background load, and thermals |
 | Confidence calibration | Delayed-label joins, chronological holdout, Brier/ECE gates, immutable promotion, change points, and rollback | Calibration can fail under future shift; representative recent labels and post-deployment monitoring remain mandatory |

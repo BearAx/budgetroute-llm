@@ -14,9 +14,13 @@ Heuristics are portable but dataset-sensitive. Feature thresholds must be valida
 
 ## Learned
 
-The learned policy predicts whether the small backend will meet a quality threshold using the same numeric feature snapshot at training and serving. The artifact stores the preprocessing/model pipeline, ordered features, label definition, source hash, three group-aware partitions, scalar calibrator, calibration-selected serving threshold, seed, raw/calibrated test metrics, warnings, and package versions.
+The learned policy supports two explicit training targets using the same numeric feature snapshot at training and serving. `small_success` predicts whether the small backend meets a quality threshold. `paired_quality` joins successful `always_small` and `always_large` outcomes for each example and predicts whether small-model quality is at least large-model quality. The paired target directly models when selecting the inexpensive backend avoids an observed quality loss; it does not assume that the larger model is always correct.
+
+The artifact stores the preprocessing/model pipeline, ordered features, label strategy and definition, source hash, three group-aware partitions, scalar calibrator, calibration-selected serving threshold, seed, raw/calibrated test metrics, held-out routing outcome metrics when paired outcomes exist, warnings, and package versions. Outcome metrics include selected quality, route share, deltas against both fixed baselines, and regret against a per-example oracle.
 
 Logistic regression is used when both training classes exist; a dummy classifier provides explicit, non-crashing behavior for one-class demonstrations. Related records share `group_id` and cannot cross train/calibration/test boundaries when enough groups exist. Tiny in-sample fallbacks are labeled and are not generalization evidence.
+
+`materialize-router-test-split` exports the persisted test IDs in artifact order and writes a derived integrity manifest linked to the parent dataset hash. This lets the final live policy benchmark use only untouched examples. The test split must not be used to select features, thresholds, or hyperparameters after its results are inspected.
 
 ## Retrieval first
 

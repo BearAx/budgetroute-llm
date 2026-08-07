@@ -11,6 +11,7 @@ The project separates model backends, scheduling/load telemetry, routing, retrie
 ## Resume bullets
 
 - Built and benchmarked a quality-aware Qwen2.5 router on 100 subject-stratified MMLU questions using an RTX 3060 Laptop GPU; the heuristic routed 78% of requests to the 0.5B model and measured 390 ms p50 / 490 ms p95 at 46% accuracy versus 461 ms / 537 ms at 57% for the 1.5B baseline. Cite the [benchmark card](../reports/benchmarks/qwen25-mmlu-100-rtx3060.md) and keep the measured quality trade-off explicit.
+- Designed a leakage-resistant paired-outcome study with 500 live model pairs and disjoint 300/100/100 train/calibration/test partitions; the held-out router routed 8% to the 0.5B model but scored 51% versus 53% for always-large and did not reduce p50 latency. Cite the [held-out benchmark card](../reports/benchmarks/qwen25-mmlu-500-learned-rtx3060.md) as evidence of rigorous negative-result reporting, not as an optimization win.
 - Built a quality-aware LLM routing system across small/large models, retrieval, cascade, and abstention; on **[real dataset/model/hardware]**, achieved **[measured quality]** at **[measured p50/p95 latency]** versus **[baseline]**.
 - Engineered reproducible experiment artifacts, deterministic evaluation, calibration metrics, FastAPI serving, and offline CI with **[real test count/coverage at time of application]**.
 - Implemented optional CPU/CUDA Transformers execution and portable cosine retrieval, reducing **[measured compute or latency]** by **[real measured percentage]** at a **[real configured quality target]**.
