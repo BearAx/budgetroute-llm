@@ -7,7 +7,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 
@@ -215,10 +215,20 @@ def materialize_dataset_command(
     output: Path = typer.Option(..., "--output", dir_okay=False),
     limit: int | None = typer.Option(None, min=1),
     offset: int = typer.Option(0, min=0),
+    sampling: Literal["head", "stratified"] = typer.Option("head"),
+    seed: int = typer.Option(42),
     corpus_dir: Path | None = typer.Option(None, "--corpus-dir", file_okay=False),
 ) -> None:
     """Materialize a pinned public dataset and write its integrity manifest."""
-    manifest = materialize_dataset(spec, output, limit=limit, offset=offset, corpus_dir=corpus_dir)
+    manifest = materialize_dataset(
+        spec,
+        output,
+        limit=limit,
+        offset=offset,
+        sampling=sampling,
+        seed=seed,
+        corpus_dir=corpus_dir,
+    )
     _print_json(
         {
             "dataset": str(output),

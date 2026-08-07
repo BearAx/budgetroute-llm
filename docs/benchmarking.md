@@ -29,3 +29,7 @@ Compare policies only when model identifiers, revisions, runtime endpoint/versio
 Fake artificial delay verifies instrumentation only. It is not a proxy for real hardware or model behavior.
 
 `compatibility-matrix` validates initialization plus single/batch behavior for exact configurations and writes environment-backed evidence without making a speed comparison. `load-test` sends a fixed number of real HTTP requests to one or more authorized endpoints with closed-loop bounded concurrency. It calculates throughput from the measured wall interval and request latency only while holding a concurrency slot, along with errors, overload, p50/p95/p99, and a bounded claim statement. It is not an open-loop arrival/soak model. Its replica multiplier is suppressed when there are non-overload failures or no successful requests and is otherwise only a heuristic to test in a subsequent steady-state run.
+
+## Published evidence
+
+The first curated real result is [Qwen2.5 routing on stratified MMLU-100](../reports/benchmarks/qwen25-mmlu-100-rtx3060.md). Its sibling JSON file preserves exact metrics. Raw predictions, model generations, downloaded data, and caches remain ignored; the card records the clean source commit, hashes, revisions, environment, replay audit, uncertainty, and claim boundary needed to interpret the result.

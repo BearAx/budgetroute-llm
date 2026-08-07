@@ -37,7 +37,8 @@ Completed milestones are marked explicitly. Completion means the repository capa
 
 ## Next evidence milestones
 
-- Run and publish large, license-compliant comparisons on named models, datasets, GPUs, and runtime revisions.
+- [x] Publish an initial license-compliant comparison on named models, data, hardware, runtime revisions, and a clean source commit: Qwen2.5-0.5B/1.5B on stratified MMLU-100 using an RTX 3060 Laptop GPU.
+- Expand the initial study to larger held-out samples, repeated timing trials, trained/calibrated routing, and batch/concurrency matrices before making quality-retention or capacity claims.
 - Implement a PostgreSQL or Redis `OperationalStore` for multi-host coordination; SQLite intentionally targets one shared host/filesystem.
 - Integrate an external identity provider, secret manager, WAF/service mesh, centralized telemetry, and ticketing system for sensitive production use.
 - Add domain-specific semantic/human evaluation and red-team evidence; no generic filter can prove factuality, usefulness, or prompt-injection safety.
