@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install format format-check lint typecheck test test-unit test-integration coverage check doctor fake-demo fake-benchmark report serve-fake build clean
+.PHONY: install format format-check lint typecheck test test-unit test-integration coverage check doctor security fake-demo fake-benchmark report serve-fake build clean
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -35,6 +35,9 @@ check: format-check lint typecheck test build
 doctor:
 	$(PYTHON) -m budgetroute doctor --config configs/serving/fake.yaml
 
+security:
+	$(PYTHON) -m budgetroute security-check --config configs/serving/fake.yaml
+
 fake-demo:
 	$(PYTHON) -m budgetroute demo --config configs/serving/fake.yaml
 
@@ -52,4 +55,3 @@ build:
 
 clean:
 	$(PYTHON) -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in [pathlib.Path('build'), pathlib.Path('dist'), pathlib.Path('.pytest_cache'), pathlib.Path('.mypy_cache'), pathlib.Path('.ruff_cache')]]"
-

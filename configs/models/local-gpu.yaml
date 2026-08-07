@@ -1,0 +1,35 @@
+mode: gpu
+small_backend:
+  type: transformers
+  model_id: Qwen/Qwen2.5-0.5B-Instruct
+  tokenizer_id: Qwen/Qwen2.5-0.5B-Instruct
+  revision: 7ae557604adf67be50417f59c2c2f167def9a775
+  model_license: apache-2.0
+  model_card: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct
+  device: cuda
+  precision: fp16
+  compile: false
+  quantization: none
+  generation:
+    max_new_tokens: 128
+    temperature: 0
+    top_p: 1
+    repetition_penalty: 1
+    seed: 42
+large_backend:
+  type: transformers
+  model_id: Qwen/Qwen2.5-1.5B-Instruct
+  tokenizer_id: Qwen/Qwen2.5-1.5B-Instruct
+  revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  model_license: apache-2.0
+  model_card: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct
+  device: cuda
+  precision: fp16
+  compile: false
+  quantization: none
+  generation:
+    max_new_tokens: 128
+    temperature: 0
+    top_p: 1
+    repetition_penalty: 1
+    seed: 42

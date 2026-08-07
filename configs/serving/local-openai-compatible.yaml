@@ -1,0 +1,12 @@
+extends:
+  - ../base.yaml
+  - ../models/local-openai-compatible.yaml
+  - ../routing/load-aware.yaml
+mode: cpu
+batching:
+  enabled: true
+  max_batch_size: 16
+  max_wait_ms: 8
+  max_queue_size: 512
+retrieval:
+  enabled: false

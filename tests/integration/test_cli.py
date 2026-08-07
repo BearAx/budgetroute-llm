@@ -22,9 +22,17 @@ def test_cli_validation_inspection_doctor_and_demo(project_root: Path) -> None:
 
     doctor = runner.invoke(app, ["doctor", "--config", str(config)])
     assert doctor.exit_code == 0, doctor.output
-    assert '"budgetroute_version": "0.1.0"' in doctor.output
+    assert '"budgetroute_version": "0.4.0"' in doctor.output
+
+    security = runner.invoke(app, ["security-check", "--config", str(config)])
+    assert security.exit_code == 0, security.output
+    assert '"passed": true' in security.output
 
     demo = runner.invoke(app, ["demo", "--config", str(config)])
     assert demo.exit_code == 0, demo.output
     assert "FAKE MODE DEMO" in demo.output
     assert "cascade -> escalate" in demo.output
+
+    unsafe_bind = runner.invoke(app, ["serve", "--config", str(config), "--host", "0.0.0.0"])
+    assert unsafe_bind.exit_code != 0
+    assert "non-loopback API binding requires" in str(unsafe_bind.exception)

@@ -1,0 +1,22 @@
+extends:
+  - ../base.yaml
+  - ../models/local-gpu.yaml
+retrieval:
+  enabled: true
+  corpus_path: data/corpora/hotpotqa-validation
+  index_path: data/indexes/hotpotqa-validation.npz
+routing:
+  policy: heuristic
+benchmark:
+  dataset_path: data/materialized/hotpotqa-validation.jsonl
+  dataset_manifest_path: data/materialized/hotpotqa-validation.manifest.json
+  policies: [always_small, always_large, heuristic, retrieval_first, cascade]
+  warmup_runs: 2
+  measured_runs: 1
+  quality_threshold: 0.8
+  cache:
+    mode: read_write
+    directory: outputs/cache/generations
+  replay_verify_samples: 3
+  require_pinned_revisions: true
+  fake: false

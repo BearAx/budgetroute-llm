@@ -10,7 +10,7 @@ benchmark:
   policies: [always_small, always_large, heuristic, retrieval_first, cascade]
   warmup_runs: 3
   measured_runs: 5
+  require_pinned_revisions: true
   concurrency: 1
   batch_size: 1
   fake: false
-

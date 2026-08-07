@@ -6,11 +6,27 @@ batching:
   enabled: false
   max_batch_size: 8
   max_wait_ms: 10
+  max_queue_size: 256
+  submit_timeout_ms: 100
+  request_timeout_ms: 120000
 api:
   host: 127.0.0.1
   port: 8000
   log_level: info
   max_prompt_chars: 50000
+  max_request_bytes: 1048576
+  require_api_key: false
+  api_key_env: BUDGETROUTE_API_KEY
+  rate_limit_requests: 60
+  rate_limit_window_seconds: 60
+  trusted_hosts: [localhost, 127.0.0.1, testserver]
+  metrics_enabled: true
+  feedback_enabled: false
+monitoring:
+  enabled: true
+  window_size: 500
+  minimum_samples: 50
+  drift_threshold: 0.2
 retrieval:
   enabled: false
   corpus_path: data/sample_corpus
@@ -29,6 +45,13 @@ routing:
   abstain_threshold: 0.2
   cascade_confidence_threshold: 0.65
   retrieval_similarity_threshold: 0.12
+  target_latency_ms: 1000
+  overload_threshold: 1.0
+  quality_weight: 0.6
+  latency_weight: 0.25
+  cost_weight: 0.15
+  human_review_enabled: false
+  human_review_threshold: 0.9
 benchmark:
   dataset_path: data/sample_benchmark.jsonl
   policies: [always_small, always_large, heuristic, retrieval_first, cascade]
@@ -37,4 +60,8 @@ benchmark:
   concurrency: 1
   batch_size: 1
   quality_threshold: 0.8
+  cache:
+    mode: "off"
+    directory: outputs/cache/generations
+  replay_verify_samples: 0
   fake: true

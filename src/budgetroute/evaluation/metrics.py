@@ -33,6 +33,7 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
             if item.time_to_first_token_ms is not None
         ]
     )
+    queue_latency = summarize_latencies([item.queue_ms for item in successful if item.queue_ms > 0])
     by_category: dict[str, list[float]] = defaultdict(list)
     for item in successful:
         by_category[item.category].append(item.quality_score)
@@ -87,6 +88,13 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
             "p95_ms": ttft.p95_ms,
             "warning": ttft.warning,
         },
+        "queue_latency": {
+            "count": queue_latency.count,
+            "mean_ms": queue_latency.mean_ms,
+            "p50_ms": queue_latency.p50_ms,
+            "p95_ms": queue_latency.p95_ms,
+            "warning": queue_latency.warning,
+        },
         "throughput_requests_per_second": (
             len(successful) / total_latency_seconds if total_latency_seconds else None
         ),
@@ -97,6 +105,7 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
             if total_latency_seconds
             else None
         ),
+        "batch_sizes": dict(sorted(Counter(item.batch_size for item in successful).items())),
         "process_rss_mb_peak": max(
             (item.process_rss_mb for item in successful if item.process_rss_mb is not None),
             default=None,
@@ -107,6 +116,16 @@ def aggregate_metrics(predictions: list[PredictionRecord]) -> dict[str, Any]:
         ),
         "escalations": sum(item.escalated for item in successful),
         "abstentions": sum(item.abstained for item in successful),
+        "human_review_requests": sum(item.human_review_required for item in successful),
+        "estimated_cost_units": sum(item.estimated_cost_units or 0.0 for item in successful),
+        "replayed_requests": sum(item.replayed for item in successful),
+        "confidence_methods": dict(
+            sorted(
+                Counter(
+                    item.confidence_method or "router_or_unknown" for item in successful
+                ).items()
+            )
+        ),
         **selective,
         "brier_score": brier_score(confidences, outcomes),
         "expected_calibration_error": expected_calibration_error(confidences, outcomes),

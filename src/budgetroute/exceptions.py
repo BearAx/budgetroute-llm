@@ -23,3 +23,11 @@ class ArtifactError(BudgetRouteError):
 
 class RouterTrainingError(BudgetRouteError):
     """A learned router could not be trained or loaded."""
+
+
+class OverloadError(BudgetRouteError):
+    """The bounded inference scheduler cannot safely accept more work."""
+
+
+class RequestDeadlineError(BudgetRouteError):
+    """A request exceeded its configured queue or execution deadline."""

@@ -1,0 +1,31 @@
+mode: cpu
+small_backend:
+  type: transformers
+  model_id: HuggingFaceTB/SmolLM2-135M-Instruct
+  tokenizer_id: HuggingFaceTB/SmolLM2-135M-Instruct
+  revision: 12fd25f77366fa6b3b4b768ec3050bf629380bac
+  model_license: apache-2.0
+  model_card: https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct
+  device: cpu
+  precision: fp32
+  generation:
+    max_new_tokens: 48
+    temperature: 0
+    top_p: 1
+    repetition_penalty: 1
+    seed: 42
+large_backend:
+  type: transformers
+  model_id: HuggingFaceTB/SmolLM2-360M-Instruct
+  tokenizer_id: HuggingFaceTB/SmolLM2-360M-Instruct
+  revision: a10cc1512eabd3dde888204e902eca88bddb4951
+  model_license: apache-2.0
+  model_card: https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct
+  device: cpu
+  precision: fp32
+  generation:
+    max_new_tokens: 48
+    temperature: 0
+    top_p: 1
+    repetition_penalty: 1
+    seed: 42

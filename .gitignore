@@ -33,7 +33,7 @@ dist/
 Thumbs.db
 
 # Models, datasets, caches, indexes, and experiment artifacts
-models/
+/models/
 model-cache/
 .cache/
 *.safetensors
@@ -44,6 +44,8 @@ model-cache/
 *.faiss
 *.index
 data/downloads/
+data/materialized/
+data/corpora/
 data/indexes/
 outputs/*
 !outputs/.gitkeep
@@ -54,4 +56,3 @@ reports/generated/
 *.tmp
 *.bak
 tmp/
-

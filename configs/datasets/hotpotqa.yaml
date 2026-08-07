@@ -1,0 +1,11 @@
+schema_version: 1
+name: hotpotqa
+adapter: hotpot_qa
+source: hotpotqa/hotpot_qa
+config_name: distractor
+revision: 1908d6afbbead072334abe2965f91bd2709910ab
+split: validation
+license: CC-BY-SA-4.0
+homepage: https://huggingface.co/datasets/hotpotqa/hotpot_qa
+prompt_version: v1
+

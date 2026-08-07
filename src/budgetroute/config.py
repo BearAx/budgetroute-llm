@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import os
+import re
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -17,17 +20,32 @@ class GenerationConfig(BaseModel):
     max_new_tokens: int = Field(default=128, ge=1, le=4096)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     top_p: float = Field(default=1.0, gt=0.0, le=1.0)
+    repetition_penalty: float = Field(default=1.0, ge=0.1, le=10.0)
+    seed: int = 42
 
 
 class BackendConfig(BaseModel):
-    type: Literal["fake", "transformers"] = "fake"
+    type: Literal["fake", "transformers", "openai_compatible"] = "fake"
     model_id: str | None = None
     tokenizer_id: str | None = None
+    revision: str | None = None
+    tokenizer_revision: str | None = None
+    model_license: str | None = None
+    model_card: str | None = None
+    local_files_only: bool = False
     device: Literal["cpu", "cuda", "auto"] = "cpu"
     precision: Literal["fp32", "fp16", "bf16"] = "fp32"
     quantization: Literal["none", "int8", "int4"] = "none"
     compile: bool = False
     trust_remote_code: bool = False
+    base_url: str | None = None
+    api_key_env: str | None = None
+    request_timeout_seconds: float = Field(default=120.0, gt=0.0, le=3600.0)
+    request_logprobs: bool = False
+    allow_remote_endpoint: bool = False
+    max_concurrency: int = Field(default=1, ge=1, le=1024)
+    input_cost_units_per_1k_tokens: float = Field(default=0.0, ge=0.0)
+    output_cost_units_per_1k_tokens: float = Field(default=0.0, ge=0.0)
     artificial_latency_ms: float = Field(default=0.0, ge=0.0)
     fail_on_substrings: list[str] = Field(default_factory=list)
     quality: float = Field(default=0.8, ge=0.0, le=1.0)
@@ -35,13 +53,25 @@ class BackendConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_backend(self) -> BackendConfig:
-        if self.type == "transformers" and not self.model_id:
-            raise ValueError("transformers backend requires model_id")
-        if self.type == "fake" and self.quantization != "none":
+        if self.type in {"transformers", "openai_compatible"} and not self.model_id:
+            raise ValueError(f"{self.type} backend requires model_id")
+        if self.type == "openai_compatible":
+            if not self.base_url:
+                raise ValueError("openai_compatible backend requires base_url")
+            parsed = urlparse(self.base_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("openai_compatible base_url must be an HTTP(S) URL")
+            if parsed.username or parsed.password or parsed.query or parsed.fragment:
+                raise ValueError("base_url must not contain credentials, a query, or a fragment")
+            if self.api_key_env is not None and not re.fullmatch(
+                r"[A-Z][A-Z0-9_]*", self.api_key_env
+            ):
+                raise ValueError("api_key_env must be an uppercase environment variable name")
+        if self.type != "transformers" and self.quantization != "none":
             raise ValueError("quantization is only valid for transformers backends")
-        if self.device == "cpu" and self.precision == "fp16":
+        if self.type == "transformers" and self.device == "cpu" and self.precision == "fp16":
             raise ValueError("fp16 on CPU is unsupported; use fp32 or a supported bf16 setup")
-        if self.device == "cpu" and self.quantization != "none":
+        if self.type == "transformers" and self.device == "cpu" and self.quantization != "none":
             raise ValueError("quantization configuration currently requires a CUDA device")
         return self
 
@@ -77,6 +107,8 @@ class RoutingConfig(BaseModel):
         "learned",
         "retrieval_first",
         "cascade",
+        "load_aware",
+        "budget_aware",
     ] = "heuristic"
     seed: int = 42
     small_probability: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -86,7 +118,17 @@ class RoutingConfig(BaseModel):
     cascade_confidence_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     retrieval_similarity_threshold: float = Field(default=0.12, ge=-1.0, le=1.0)
     learned_model_path: Path | None = None
+    learned_success_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    cascade_calibrator_path: Path | None = None
     retain_initial_answer: bool = True
+    target_latency_ms: float = Field(default=1000.0, gt=0.0)
+    max_estimated_cost_units: float | None = Field(default=None, ge=0.0)
+    quality_weight: float = Field(default=0.6, ge=0.0)
+    latency_weight: float = Field(default=0.25, ge=0.0)
+    cost_weight: float = Field(default=0.15, ge=0.0)
+    overload_threshold: float = Field(default=1.0, gt=0.0)
+    human_review_enabled: bool = False
+    human_review_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def validate_probabilities(self) -> RoutingConfig:
@@ -94,6 +136,10 @@ class RoutingConfig(BaseModel):
             raise ValueError("random routing probabilities must sum to more than zero")
         if self.policy == "learned" and self.learned_model_path is None:
             raise ValueError("learned routing requires learned_model_path")
+        if self.policy == "budget_aware" and (
+            self.quality_weight + self.latency_weight + self.cost_weight <= 0
+        ):
+            raise ValueError("budget-aware routing weights must sum to more than zero")
         return self
 
 
@@ -101,16 +147,28 @@ class BatchingConfig(BaseModel):
     enabled: bool = False
     max_batch_size: int = Field(default=8, ge=1, le=1024)
     max_wait_ms: float = Field(default=10.0, ge=0.0, le=10_000.0)
+    max_queue_size: int = Field(default=256, ge=1, le=100_000)
+    submit_timeout_ms: float = Field(default=100.0, gt=0.0, le=60_000.0)
+    request_timeout_ms: float = Field(default=120_000.0, gt=0.0, le=3_600_000.0)
+
+
+class GenerationCacheConfig(BaseModel):
+    mode: Literal["off", "read_write", "read_only", "refresh"] = "off"
+    directory: Path = Path("outputs/cache/generations")
 
 
 class BenchmarkConfig(BaseModel):
     dataset_path: Path = Path("data/sample_benchmark.jsonl")
+    dataset_manifest_path: Path | None = None
     policies: list[str] = Field(default_factory=lambda: ["always_small", "heuristic", "cascade"])
     warmup_runs: int = Field(default=1, ge=0, le=100)
     measured_runs: int = Field(default=1, ge=1, le=10_000)
     concurrency: int = Field(default=1, ge=1, le=1024)
     batch_size: int = Field(default=1, ge=1, le=1024)
     quality_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    cache: GenerationCacheConfig = Field(default_factory=GenerationCacheConfig)
+    replay_verify_samples: int = Field(default=0, ge=0, le=1000)
+    require_pinned_revisions: bool = False
     fake: bool = False
 
 
@@ -119,6 +177,38 @@ class ApiConfig(BaseModel):
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "info"
     max_prompt_chars: int = Field(default=50_000, ge=1)
+    max_request_bytes: int = Field(default=1_048_576, ge=1024, le=100_000_000)
+    require_api_key: bool = False
+    api_key_env: str = "BUDGETROUTE_API_KEY"
+    rate_limit_requests: int = Field(default=60, ge=1, le=1_000_000)
+    rate_limit_window_seconds: float = Field(default=60.0, gt=0.0, le=86_400.0)
+    trusted_hosts: list[str] = Field(
+        default_factory=lambda: ["localhost", "127.0.0.1", "testserver"]
+    )
+    metrics_enabled: bool = True
+    feedback_enabled: bool = False
+
+    @model_validator(mode="after")
+    def validate_api(self) -> ApiConfig:
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", self.api_key_env):
+            raise ValueError("api.api_key_env must be an uppercase environment variable name")
+        if not self.trusted_hosts:
+            raise ValueError("api.trusted_hosts cannot be empty")
+        return self
+
+
+class MonitoringConfig(BaseModel):
+    enabled: bool = True
+    window_size: int = Field(default=500, ge=20, le=1_000_000)
+    minimum_samples: int = Field(default=50, ge=10)
+    drift_threshold: float = Field(default=0.2, gt=0.0)
+    baseline_path: Path | None = None
+
+    @model_validator(mode="after")
+    def validate_monitoring(self) -> MonitoringConfig:
+        if self.minimum_samples > self.window_size:
+            raise ValueError("monitoring.minimum_samples cannot exceed window_size")
+        return self
 
 
 class AppConfig(BaseModel):
@@ -133,6 +223,7 @@ class AppConfig(BaseModel):
     batching: BatchingConfig = Field(default_factory=BatchingConfig)
     benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
 
     @model_validator(mode="after")
     def validate_composition(self) -> AppConfig:
@@ -143,6 +234,21 @@ class AppConfig(BaseModel):
             self.small_backend.type != "fake" or self.large_backend.type != "fake"
         ):
             raise ValueError("fake mode requires both backends to use type=fake")
+        if self.benchmark.require_pinned_revisions:
+            unpinned = [
+                name
+                for name, backend in (
+                    ("small_backend", self.small_backend),
+                    ("large_backend", self.large_backend),
+                )
+                if backend.type == "transformers" and backend.revision is None
+            ]
+            if unpinned:
+                raise ValueError(
+                    "real benchmark requires pinned model revisions for: " + ", ".join(unpinned)
+                )
+        if not _is_loopback_host(self.api.host) and not self.api.require_api_key:
+            raise ValueError("non-loopback API binding requires api.require_api_key=true")
         return self
 
     def sanitized_summary(self) -> dict[str, Any]:
@@ -152,19 +258,42 @@ class AppConfig(BaseModel):
             "small_backend": {
                 "type": self.small_backend.type,
                 "model_id": self.small_backend.model_id,
+                "revision": self.small_backend.revision,
                 "device": self.small_backend.device,
                 "precision": self.small_backend.precision,
             },
             "large_backend": {
                 "type": self.large_backend.type,
                 "model_id": self.large_backend.model_id,
+                "revision": self.large_backend.revision,
                 "device": self.large_backend.device,
                 "precision": self.large_backend.precision,
             },
             "retrieval": self.retrieval.model_dump(mode="json"),
             "routing": self.routing.model_dump(mode="json"),
             "batching": self.batching.model_dump(mode="json"),
+            "api": {
+                "host": self.api.host,
+                "port": self.api.port,
+                "max_prompt_chars": self.api.max_prompt_chars,
+                "max_request_bytes": self.api.max_request_bytes,
+                "authentication_required": self.api.require_api_key,
+                "rate_limit_requests": self.api.rate_limit_requests,
+                "rate_limit_window_seconds": self.api.rate_limit_window_seconds,
+                "metrics_enabled": self.api.metrics_enabled,
+                "feedback_enabled": self.api.feedback_enabled,
+            },
+            "monitoring": self.monitoring.model_dump(mode="json"),
         }
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -281,12 +410,45 @@ def validate_runtime_config(config: AppConfig) -> None:
             and importlib.util.find_spec("bitsandbytes") is None
         ):
             raise ConfigurationError("quantization is configured but bitsandbytes is not installed")
+    for backend in (config.small_backend, config.large_backend):
+        if backend.type != "openai_compatible":
+            continue
+        assert backend.base_url is not None
+        parsed = urlparse(backend.base_url)
+        assert parsed.hostname is not None
+        if not _is_loopback_host(parsed.hostname) and not backend.allow_remote_endpoint:
+            raise ConfigurationError(
+                "remote OpenAI-compatible endpoint is disabled; set "
+                "allow_remote_endpoint=true only for an explicitly trusted server"
+            )
+        if not _is_loopback_host(parsed.hostname) and parsed.scheme != "https":
+            raise ConfigurationError("remote OpenAI-compatible endpoints must use HTTPS")
+        if backend.api_key_env and not os.environ.get(backend.api_key_env):
+            raise ConfigurationError(
+                f"OpenAI-compatible credential environment variable is unset: {backend.api_key_env}"
+            )
+    if config.api.require_api_key and not os.environ.get(config.api.api_key_env):
+        raise ConfigurationError(
+            f"API authentication is enabled but {config.api.api_key_env} is unset"
+        )
     if config.routing.policy == "learned":
         assert config.routing.learned_model_path is not None
         if not config.routing.learned_model_path.is_file():
             raise ConfigurationError(
                 f"learned router artifact does not exist: {config.routing.learned_model_path}"
             )
+    if (
+        config.routing.cascade_calibrator_path is not None
+        and not config.routing.cascade_calibrator_path.is_file()
+    ):
+        raise ConfigurationError(
+            "cascade confidence calibrator does not exist: "
+            f"{config.routing.cascade_calibrator_path}"
+        )
+    if config.benchmark.cache.mode == "read_only" and not config.benchmark.cache.directory.is_dir():
+        raise ConfigurationError(
+            f"read-only generation cache does not exist: {config.benchmark.cache.directory}"
+        )
     if config.retrieval.enabled:
         if config.retrieval.index_type == "faiss" and importlib.util.find_spec("faiss") is None:
             raise ConfigurationError("FAISS index requested but faiss is not installed")

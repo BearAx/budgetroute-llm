@@ -6,22 +6,29 @@ import time
 from typing import Any
 
 from budgetroute.backends.base import GenerationBackend
+from budgetroute.backends.cached import CachedGenerationBackend
 from budgetroute.backends.fake import FakeBackend
+from budgetroute.backends.openai_compatible import OpenAICompatibleBackend
 from budgetroute.backends.transformers import TransformersBackend
 from budgetroute.config import AppConfig, BackendConfig
+from budgetroute.experiments.cache import GenerationCache
 from budgetroute.inference.engine import InferenceEngine, RouteResult
+from budgetroute.inference.load import BackendLoadSnapshot, BackendLoadTracker, TrackedBackend
 from budgetroute.retrieval.base import EmbeddingProvider
 from budgetroute.retrieval.embeddings import FakeEmbedder, TransformersEmbedder
 from budgetroute.retrieval.index import ExactCosineIndex, FaissCosineIndex
 from budgetroute.retrieval.service import RetrievalService
 from budgetroute.routing.registry import build_policy
+from budgetroute.routing.training import load_backend_confidence_calibrator
 from budgetroute.schemas import BackendName, GenerationRequest, GenerationResponse
 
 
 def _build_backend(name: BackendName, config: BackendConfig) -> GenerationBackend:
     if config.type == "fake":
         return FakeBackend(name, config)
-    return TransformersBackend(name, config)
+    if config.type == "transformers":
+        return TransformersBackend(name, config)
+    return OpenAICompatibleBackend(name, config)
 
 
 def _build_retriever(config: AppConfig) -> RetrievalService | None:
@@ -43,10 +50,12 @@ class InferenceService:
         config: AppConfig,
         engine: InferenceEngine,
         retriever: RetrievalService | None,
+        load_trackers: dict[BackendName, BackendLoadTracker],
     ) -> None:
         self.config = config
         self.engine = engine
         self.retriever = retriever
+        self.load_trackers = load_trackers
         self._initialized = False
         self.initialization_ms = 0.0
 
@@ -70,6 +79,14 @@ class InferenceService:
         if not self._initialized:
             self.initialize()
         return self.engine.generate(request)
+
+    def generate_batch(self, requests: list[GenerationRequest]) -> list[GenerationResponse]:
+        if not self._initialized:
+            self.initialize()
+        return self.engine.generate_batch(requests)
+
+    def load_snapshot(self) -> dict[BackendName, BackendLoadSnapshot]:
+        return {name: tracker.snapshot() for name, tracker in self.load_trackers.items()}
 
     def health(self) -> dict[str, Any]:
         retriever_ready = self.retriever is None or self.retriever.ready
@@ -100,7 +117,49 @@ class InferenceService:
 def build_service(config: AppConfig) -> InferenceService:
     small = _build_backend(BackendName.SMALL, config.small_backend)
     large = _build_backend(BackendName.LARGE, config.large_backend)
+    cache_mode = config.benchmark.cache.mode
+    if cache_mode != "off":
+        cache = GenerationCache(config.benchmark.cache.directory)
+        small = CachedGenerationBackend(
+            BackendName.SMALL, config.small_backend, small, cache, cache_mode
+        )
+        large = CachedGenerationBackend(
+            BackendName.LARGE, config.large_backend, large, cache, cache_mode
+        )
+    load_trackers = {
+        BackendName.SMALL: BackendLoadTracker(
+            BackendName.SMALL, config.small_backend.max_concurrency
+        ),
+        BackendName.LARGE: BackendLoadTracker(
+            BackendName.LARGE, config.large_backend.max_concurrency
+        ),
+    }
+    small = TrackedBackend(small, load_trackers[BackendName.SMALL])
+    large = TrackedBackend(large, load_trackers[BackendName.LARGE])
     retriever = _build_retriever(config)
-    policy = build_policy(config.routing)
-    engine = InferenceEngine(small, large, policy, config.routing, retriever)
-    return InferenceService(config, engine, retriever)
+
+    def load_provider() -> dict[BackendName, BackendLoadSnapshot]:
+        return {name: tracker.snapshot() for name, tracker in load_trackers.items()}
+
+    policy = build_policy(
+        config.routing,
+        load_provider=load_provider,
+        small_backend=config.small_backend,
+        large_backend=config.large_backend,
+    )
+    confidence_calibrator = None
+    cascade_threshold = None
+    if config.routing.cascade_calibrator_path is not None:
+        confidence_calibrator, cascade_threshold, _ = load_backend_confidence_calibrator(
+            config.routing.cascade_calibrator_path
+        )
+    engine = InferenceEngine(
+        small,
+        large,
+        policy,
+        config.routing,
+        retriever,
+        confidence_calibrator=confidence_calibrator,
+        cascade_confidence_threshold=cascade_threshold,
+    )
+    return InferenceService(config, engine, retriever, load_trackers)

@@ -15,6 +15,7 @@ class RouteName(StrEnum):
     SMALL_WITH_RETRIEVAL = "small_with_retrieval"
     CASCADE = "cascade"
     ABSTAIN = "abstain"
+    HUMAN_REVIEW = "human_review"
 
 
 class BackendName(StrEnum):
@@ -78,6 +79,8 @@ class RouteDecision(BaseModel):
     policy: str
     features: dict[str, Any] = Field(default_factory=dict)
     thresholds: dict[str, float] = Field(default_factory=dict)
+    estimated_cost_units: float | None = Field(default=None, ge=0.0)
+    estimated_latency_ms: float | None = Field(default=None, ge=0.0)
 
 
 class RetrievalHit(BaseModel):
@@ -93,6 +96,8 @@ class RouterTrace(BaseModel):
     difficulty_score: float | None = None
     confidence: float
     reason: str
+    features: dict[str, Any] = Field(default_factory=dict)
+    thresholds: dict[str, float] = Field(default_factory=dict)
 
 
 class ExecutionTrace(BaseModel):
@@ -101,8 +106,13 @@ class ExecutionTrace(BaseModel):
     retrieval_used: bool = False
     escalated: bool = False
     abstained: bool = False
+    human_review_required: bool = False
+    human_review_reason: str | None = None
     escalation_reason: str | None = None
     initial_answer: str | None = None
+    initial_confidence_raw: float | None = Field(default=None, ge=0.0, le=1.0)
+    initial_confidence_calibrated: float | None = Field(default=None, ge=0.0, le=1.0)
+    cascade_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class UsageStats(BaseModel):
@@ -119,11 +129,27 @@ class TimingStats(BaseModel):
     generation_ms: float = Field(default=0.0, ge=0.0)
     escalation_ms: float = Field(default=0.0, ge=0.0)
     time_to_first_token_ms: float | None = Field(default=None, ge=0.0)
+    replay_overhead_ms: float | None = Field(default=None, ge=0.0)
+    queue_ms: float = Field(default=0.0, ge=0.0)
+    batch_size: int = Field(default=1, ge=1)
 
 
 class MemoryStats(BaseModel):
     process_rss_mb: float = Field(ge=0.0)
     peak_cuda_mb: float | None = Field(default=None, ge=0.0)
+
+
+class ConfidenceSignals(BaseModel):
+    """Backend-native uncertainty measurements, not correctness probabilities."""
+
+    method: str
+    token_count: int = Field(ge=0)
+    sequence_log_probability: float | None = None
+    mean_token_log_probability: float | None = None
+    minimum_token_log_probability: float | None = None
+    geometric_mean_token_probability: float | None = Field(default=None, ge=0.0, le=1.0)
+    mean_token_entropy: float | None = Field(default=None, ge=0.0)
+    normalized_mean_token_entropy: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class GenerationResponse(BaseModel):
@@ -137,7 +163,12 @@ class GenerationResponse(BaseModel):
     memory: MemoryStats
     retrieval: list[RetrievalHit] = Field(default_factory=list)
     backend_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    backend_confidence_raw: float | None = Field(default=None, ge=0.0, le=1.0)
+    backend_confidence_calibrated: bool = False
+    confidence_signals: ConfidenceSignals | None = None
+    replayed: bool = False
     fake: bool = False
+    estimated_cost_units: float | None = Field(default=None, ge=0.0)
 
 
 class BackendGeneration(BaseModel):
@@ -145,7 +176,8 @@ class BackendGeneration(BaseModel):
     backend: BackendName
     input_tokens: int
     output_tokens: int
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    confidence_signals: ConfidenceSignals | None = None
     generation_ms: float = Field(ge=0.0)
     time_to_first_token_ms: float | None = Field(default=None, ge=0.0)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -157,6 +189,9 @@ class BenchmarkRecord(BaseModel):
     prompt: str = Field(min_length=1)
     reference_answer: str
     evaluation_type: EvaluationType
+    group_id: str | None = None
+    source: str | None = None
+    source_split: str | None = None
     requires_retrieval: bool = False
     must_abstain: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -164,6 +199,9 @@ class BenchmarkRecord(BaseModel):
 
 class PredictionRecord(BaseModel):
     example_id: str
+    group_id: str | None = None
+    source: str | None = None
+    source_split: str | None = None
     category: str
     policy: str
     route: RouteName
@@ -176,6 +214,8 @@ class PredictionRecord(BaseModel):
     latency_ms: float = Field(ge=0.0)
     generation_ms: float = Field(default=0.0, ge=0.0)
     retrieval_ms: float = Field(default=0.0, ge=0.0)
+    queue_ms: float = Field(default=0.0, ge=0.0)
+    batch_size: int = Field(default=1, ge=1)
     time_to_first_token_ms: float | None = Field(default=None, ge=0.0)
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
@@ -184,5 +224,18 @@ class PredictionRecord(BaseModel):
     retrieval_used: bool
     escalated: bool
     abstained: bool
+    human_review_required: bool = False
+    estimated_cost_units: float | None = Field(default=None, ge=0.0)
     confidence: float = Field(ge=0.0, le=1.0)
+    backend_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    backend_confidence_raw: float | None = Field(default=None, ge=0.0, le=1.0)
+    backend_confidence_calibrated: bool = False
+    confidence_method: str | None = None
+    replayed: bool = False
     error: str | None = None
+
+
+class FeedbackRecord(BaseModel):
+    request_id: str = Field(min_length=1, max_length=200)
+    correct: bool
+    notes: str | None = Field(default=None, max_length=2000)

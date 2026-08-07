@@ -1,0 +1,22 @@
+extends:
+  - ../base.yaml
+  - ../models/cpu-smoke.yaml
+retrieval:
+  enabled: false
+routing:
+  policy: heuristic
+benchmark:
+  dataset_path: data/materialized/gsm8k-cpu-smoke.jsonl
+  dataset_manifest_path: data/materialized/gsm8k-cpu-smoke.manifest.json
+  policies: [always_small, always_large, heuristic, cascade]
+  warmup_runs: 1
+  measured_runs: 1
+  batch_size: 2
+  concurrency: 1
+  quality_threshold: 1.0
+  cache:
+    mode: read_write
+    directory: outputs/cache/generation-cpu-smoke
+  replay_verify_samples: 1
+  require_pinned_revisions: true
+  fake: false

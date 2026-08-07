@@ -1,0 +1,69 @@
+# Real evaluation workflow
+
+This workflow separates expensive model execution from inexpensive routing-policy experiments. It is designed for a constrained local machine while preserving traceability.
+
+## 1. Materialize pinned datasets
+
+Dataset specifications under `configs/datasets/` pin the Hugging Face source revision, split, license, homepage, adapter, and prompt version. Materialization writes benchmark JSONL plus a sibling manifest containing the record count and SHA-256 digest. HotpotQA also writes per-example retrieval documents and a deterministic corpus digest.
+
+```bash
+python -m budgetroute materialize-dataset --spec configs/datasets/gsm8k.yaml --output data/materialized/gsm8k-test.jsonl --limit 100
+python -m budgetroute materialize-dataset --spec configs/datasets/mmlu.yaml --output data/materialized/mmlu-test.jsonl --limit 100
+python -m budgetroute materialize-dataset --spec configs/datasets/hotpotqa.yaml --output data/materialized/hotpotqa-validation.jsonl --limit 100 --corpus-dir data/corpora/hotpotqa-validation
+```
+
+`inspect-data --manifest ...` rehashes the JSONL and rejects modified or mismatched data. Downloads and materialized files are intentionally ignored by Git.
+
+## 2. Collect model baselines once
+
+Model profiles pin model/tokenizer revisions, license identifiers, model-card URLs, precision, seed, and generation settings. `collect-baselines` forces live execution and fills the content-addressed generation cache. The cache key includes every request field that can influence generation plus the backend/model/generation fingerprint; request IDs are excluded so repeated policy runs reuse identical work.
+
+```bash
+python -m budgetroute collect-baselines --config configs/benchmarks/real-gsm8k.yaml
+```
+
+When retrieval is enabled, collection also runs retrieval-first and cascade paths so contextual small-model generations are available for replay.
+
+## 3. Replay policies without models
+
+```bash
+python -m budgetroute replay-benchmark --config configs/benchmarks/real-gsm8k.yaml
+```
+
+Read-only replay does not initialize generation model weights. A cache miss is an error naming the missing backend/key rather than silently generating. Replay predictions preserve recorded generation latency, token usage, confidence, and model memory while recording replay overhead separately. Reports identify replay explicitly.
+
+Use `verify-replay` on a small sample after backend, prompt, cache-schema, or Transformers changes:
+
+```bash
+python -m budgetroute verify-replay --config configs/benchmarks/real-gsm8k.yaml --sample-size 3
+```
+
+The verifier refreshes live entries, replays them without model initialization, and compares answer, route, execution, usage, raw confidence, uncertainty signals, and fake/real identity exactly.
+
+## 4. Train and calibrate the router
+
+```bash
+python -m budgetroute train-router --artifacts outputs/RUN --output outputs/router/router.joblib --quality-threshold 0.8 --target-selective-accuracy 0.8
+python -m budgetroute calibrate-confidence --artifacts outputs/RUN --output outputs/router/small-confidence.json --policy always_small --quality-threshold 0.8 --target-selective-accuracy 0.8
+python -m budgetroute evaluate-router --router outputs/router/router.joblib --artifacts outputs/RUN --quality-threshold 0.8
+```
+
+The router uses three deterministic group-aware partitions:
+
+- training fits feature scaling and the base classifier;
+- calibration fits scalar temperature and selects the maximum-coverage threshold meeting the configured selective-accuracy target;
+- test is untouched until final evaluation.
+
+The artifact records every split ID/group, class counts, source hash, package versions, calibration parameters, selected threshold, raw/calibrated metrics, and any small-sample fallback. Groups must be disjoint whenever enough groups exist. The serving policy loads the stored calibrator and threshold unless configuration explicitly overrides the threshold.
+
+The backend-confidence artifact can be attached with `routing.cascade_calibrator_path`. It transforms raw small-model token likelihood before cascade thresholding. Raw and calibrated values remain separate in predictions.
+
+## Interpretation
+
+Length-normalized token likelihood and entropy are genuine model measurements, but neither is automatically a correctness probability. Calibration is task/model/prompt specific. Cache replay supports policy comparisons over fixed model outcomes; it does not reproduce queueing, concurrent contention, thermal drift, or live batching behavior. Confirm final systems conclusions with live runs.
+
+## Batch, concurrency, and runtime matrix
+
+After single-request live/replay agreement is established, create separate resolved configs for each batch size, concurrency, precision, quantization, compiler state, and runtime. Do not change several dimensions inside one unlabeled run. Use enough live requests for stable tail percentiles, retain warm-up/first-compile metadata, and compare only matching model revision, prompt template, dataset, hardware, queue deadlines, and cost-unit definitions.
+
+Cache replay can compare policy quality/cost composition but cannot measure dynamic batching, load-aware routes, model-server contention, queueing, or thermals. Those require live artifacts. The bundled local OpenAI-compatible profile is an integration example, not a compatibility or speed claim for every vLLM, llama.cpp, or Ollama release.

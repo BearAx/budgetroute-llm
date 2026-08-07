@@ -4,9 +4,14 @@ import json
 from pathlib import Path
 
 from budgetroute.config import AppConfig
+from budgetroute.experiments.replay import verify_replay
 from budgetroute.experiments.runner import run_benchmark
 from budgetroute.inference.service import build_service
-from budgetroute.routing.training import evaluate_router, train_router
+from budgetroute.routing.training import (
+    evaluate_router,
+    train_backend_confidence_calibrator,
+    train_router,
+)
 from budgetroute.schemas import GenerationRequest, RouteName
 
 
@@ -17,7 +22,13 @@ def test_benchmark_report_and_fake_router(
         update={
             "output_dir": tmp_path / "outputs",
             "benchmark": fake_config.benchmark.model_copy(
-                update={"policies": ["always_small", "heuristic", "cascade"], "fake": True}
+                update={
+                    "policies": ["always_small", "heuristic", "cascade"],
+                    "fake": True,
+                    "cache": fake_config.benchmark.cache.model_copy(
+                        update={"directory": tmp_path / "cache"}
+                    ),
+                }
             ),
         }
     )
@@ -34,8 +45,20 @@ def test_benchmark_report_and_fake_router(
     metadata = train_router(run_dir, router_path, quality_threshold=0.8)
     assert router_path.is_file()
     assert metadata["label_definition"] == "small_model_quality >= 0.8"
+    assert metadata["group_disjoint"] is True
+    assert set(metadata["splits"]) == {"train", "calibration", "test"}
     evaluation = evaluate_router(router_path, run_dir, threshold=0.8)
     assert 0 <= evaluation["accuracy"] <= 1
+    assert evaluation["evaluation_scope"] == "test"
+
+    confidence_path = tmp_path / "small-confidence.json"
+    confidence = train_backend_confidence_calibrator(run_dir, confidence_path)
+    assert confidence_path.is_file()
+    assert confidence["kind"] == "backend_confidence_calibrator"
+
+    agreement = verify_replay(benchmark_config, sample_size=2)
+    assert agreement["agreement"] == 1.0
+    assert agreement["mismatch_count"] == 0
 
     learned_config = fake_config.model_copy(
         update={

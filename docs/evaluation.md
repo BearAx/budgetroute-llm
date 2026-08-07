@@ -24,8 +24,10 @@ Open-ended semantic similarity is not used as the only correctness measure. A fu
 - **False non-escalation rate:** missed necessary escalations divided by true small failures.
 - **Coverage:** non-abstained predictions divided by all predictions.
 - **Selective accuracy:** mean quality among covered predictions; undefined at zero coverage.
+- **Human-review count:** requests explicitly withheld for an external review workflow. It is reported separately from ordinary abstention even though both reduce automated coverage.
+- **Estimated cost units:** sum of policy-selected configured token-cost estimates. This is not an observed bill or energy measurement.
 
-The initial learned label is `small_model_quality >= configured_quality_threshold`. Training prefers `always_small` artifact rows so route outcomes do not contaminate the label. Fake artifacts may train only a clearly identified fake demonstration router.
+The learned label is `small_model_quality >= configured_quality_threshold`. Training prefers `always_small` artifact rows so route outcomes do not contaminate the label. `group_id` keeps repeated or related examples together. With sufficient groups, training uses disjoint train, calibration, and test partitions: the model fits on train, temperature and serving threshold fit on calibration, and metrics are reported on untouched test. Fake artifacts may train only a clearly identified fake demonstration router.
 
 ## Calibration
 
@@ -33,16 +35,24 @@ The initial learned label is `small_model_quality >= configured_quality_threshol
 - **Expected calibration error:** weighted absolute gap between mean confidence and empirical accuracy across equal-width bins.
 - **Reliability data:** bin boundaries, count, mean confidence, and empirical accuracy, including empty bins.
 
-Constant predictions, one-class targets, empty inputs, and zero denominators return documented `null`/empty values rather than crashing. On tiny router datasets, training can use a constant classifier and labels the evaluation as in-sample.
+Transformers backends emit length-normalized token likelihood, sequence log-probability, minimum token log-probability, mean entropy, and vocabulary-normalized entropy. These are model uncertainty signals, not correctness probabilities. Raw confidence remains in artifacts. A scalar temperature calibrator may transform small-model confidence for cascade decisions; the calibrated value is stored separately.
+
+Constant predictions, one-class targets, empty inputs, and zero denominators return documented `null`/empty values rather than crashing. On tiny datasets with fewer than six groups or nine samples, training labels its unavoidable in-sample fallback explicitly.
 
 ## Systems metrics
 
 - p50 and p95 total request latency; p99 only with at least 100 samples.
-- routing, retrieval, generation, escalation, total, and TTFT where supported.
-- throughput as successful sequential requests divided by summed request time in the initial harness.
+- scheduler queue, routing, retrieval, generation, escalation, total, and TTFT where supported.
+- actual batch size, configured concurrent batch workers, queue depth/rejections/deadlines for service runs, and backend inflight utilization.
+- throughput from the observed run wall/timing artifacts; batching/concurrency configuration must match before comparison.
 - input/output tokens and generated tokens per second.
 - process RSS and optional peak CUDA allocated memory.
 - failures, escalation count, abstentions, backend and route shares.
 
-Sequential-throughput values are not concurrency capacity measurements. Percentile warnings appear below 20 observations.
+Cache replay cannot reproduce queueing or contention and is labeled accordingly. Fake timing validates instrumentation only. Percentile warnings appear below 20 observations.
 
+## Distribution shift and feedback
+
+The in-process monitor computes a rolling mean shift for numeric request features in units of each frozen baseline standard deviation. It freezes an automatic baseline at `minimum_samples`, or loads a supplied baseline. `drift_score` is the mean feature shift and `drift_detected` compares it with a configured alert threshold. This is an operational warning, not a statistical guarantee or automatic retraining trigger.
+
+The feedback endpoint retains only aggregate correctness counts. Request IDs and notes are accepted for caller-side correlation but not stored by the process. Online recalibration is deliberately not automatic: a deployment must collect delayed labels in an access-controlled system, build group/time-safe calibration data, validate against a holdout, and provide rollback criteria.

@@ -10,5 +10,5 @@ benchmark:
   policies: [always_small, always_large, heuristic]
   warmup_runs: 1
   measured_runs: 1
+  require_pinned_revisions: true
   fake: false
-
