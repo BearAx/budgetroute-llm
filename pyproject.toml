@@ -32,7 +32,7 @@ dependencies = [
 api = ["fastapi>=0.115", "httpx>=0.27", "uvicorn>=0.30"]
 transformers = ["torch>=2.3", "tokenizers>=0.19", "transformers>=4.43"]
 retrieval = ["faiss-cpu>=1.8; platform_system != 'Windows'"]
-datasets = ["datasets>=3.0,<5"]
+datasets = ["datasets>=3.0,<6"]
 learned = ["joblib>=1.4", "scikit-learn>=1.5"]
 reporting = ["jinja2>=3.1", "matplotlib>=3.9", "pandas>=2.2"]
 gpu = [
@@ -62,7 +62,7 @@ dev = [
 ]
 all = [
   "accelerate>=0.33",
-  "datasets>=3.0,<5",
+  "datasets>=3.0,<6",
   "faiss-cpu>=1.8; platform_system != 'Windows'",
   "fastapi>=0.115",
   "httpx>=0.27",
