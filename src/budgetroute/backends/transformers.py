@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import importlib.util
 import math
 import time
@@ -444,7 +445,13 @@ class TransformersBackend:
         }
 
     def cleanup(self) -> None:
+        torch = self._torch
         self._model = None
         self._tokenizer = None
-        if self._torch is not None and getattr(self._torch.cuda, "is_available", lambda: False)():
-            self._torch.cuda.empty_cache()
+        self._torch = None
+        # Repeated benchmark policies construct fresh services. Force cyclic
+        # model/module references to release before loading the next checkpoint;
+        # generational GC can otherwise retain several CPU state dicts on Windows.
+        gc.collect()
+        if torch is not None and getattr(torch.cuda, "is_available", lambda: False)():
+            torch.cuda.empty_cache()

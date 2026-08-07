@@ -36,3 +36,36 @@ def test_transformers_backend_is_lazy() -> None:
     )
     assert backend.health()["initialized"] is False
     assert backend.metadata()["model_id"] == "not-downloaded"
+
+
+def test_transformers_cleanup_releases_runtime_references() -> None:
+    class Cuda:
+        def __init__(self) -> None:
+            self.empty_cache_calls = 0
+
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        def empty_cache(self) -> None:
+            self.empty_cache_calls += 1
+
+    class Torch:
+        def __init__(self) -> None:
+            self.cuda = Cuda()
+
+    backend = TransformersBackend(
+        BackendName.SMALL,
+        BackendConfig(type="transformers", model_id="not-downloaded", device="cpu"),
+    )
+    torch = Torch()
+    backend._model = object()
+    backend._tokenizer = object()
+    backend._torch = torch
+
+    backend.cleanup()
+
+    assert backend._model is None
+    assert backend._tokenizer is None
+    assert backend._torch is None
+    assert torch.cuda.empty_cache_calls == 1
