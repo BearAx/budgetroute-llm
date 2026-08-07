@@ -19,7 +19,7 @@ from budgetroute.api.security import (
     BodyLimitMiddleware,
     SecurityHeadersMiddleware,
     SlidingWindowRateLimiter,
-    opaque_identity,
+    opaque_client_identity,
 )
 from budgetroute.config import AppConfig, load_config, validate_runtime_config
 from budgetroute.exceptions import (
@@ -110,7 +110,7 @@ def create_app(
             )
         if protected:
             client_host = request.client.host if request.client is not None else None
-            allowed, retry_after = rate_limiter.allow(opaque_identity(presented, client_host))
+            allowed, retry_after = rate_limiter.allow(opaque_client_identity(client_host))
             if not allowed:
                 return JSONResponse(
                     status_code=429,

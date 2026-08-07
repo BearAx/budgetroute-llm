@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from budgetroute.api.security import opaque_identity
+from budgetroute.api.security import opaque_client_identity
 
 
-def test_opaque_identity_is_stable_and_hides_the_token() -> None:
-    token = "test-only-low-entropy-token"
+def test_opaque_client_identity_is_stable_and_hides_the_host() -> None:
+    host = "198.51.100.2"
 
-    identity = opaque_identity(token, "127.0.0.1")
+    identity = opaque_client_identity(host)
 
-    assert identity == opaque_identity(token, "198.51.100.2")
-    assert token not in identity
+    assert identity == opaque_client_identity(host)
+    assert host not in identity
     assert len(identity) == 64
-    assert identity != opaque_identity("another-token", "127.0.0.1")
+    assert identity != opaque_client_identity("203.0.113.7")
 
 
-def test_opaque_identity_separates_host_fallback_from_token_namespace() -> None:
-    assert opaque_identity(None, "client") != opaque_identity("host:client", None)
+def test_opaque_client_identity_has_an_unknown_host_fallback() -> None:
+    assert opaque_client_identity(None) == opaque_client_identity(None)
+    assert opaque_client_identity(None) != opaque_client_identity("unknown")

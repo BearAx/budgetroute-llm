@@ -42,10 +42,10 @@ class SlidingWindowRateLimiter:
             return True, 0.0
 
 
-def opaque_identity(token: str | None, client_host: str | None) -> str:
-    """Return a stable, process-local limiter key without retaining raw credentials."""
-    material = f"token:{token}" if token else f"host:{client_host or 'unknown'}"
-    return hmac.digest(_IDENTITY_HMAC_KEY, material.encode("utf-8"), "sha256").hex()
+def opaque_client_identity(client_host: str | None) -> str:
+    """Return a stable, process-local limiter key without retaining the raw host."""
+    material = b"\x00" if client_host is None else b"\x01" + client_host.encode("utf-8")
+    return hmac.digest(_IDENTITY_HMAC_KEY, material, "sha256").hex()
 
 
 class BodyLimitMiddleware:
