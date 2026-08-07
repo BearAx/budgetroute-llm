@@ -11,7 +11,7 @@ Security fixes target the latest released minor version. Older snapshots and arb
 - GitHub dependency alerts, automated security fixes, and private vulnerability reporting are enabled at repository level.
 - Dependabot monitors Python, GitHub Actions, and Docker dependencies.
 - CI runs CodeQL's extended Python suite, dependency review, and `pip-audit`.
-- The API supports optional bearer/API-key authentication, bounded queues, deadlines, per-process rate limiting, body/prompt limits, trusted Host validation, sanitized errors/configuration, and defensive response headers.
+- The API supports optional bearer/API-key authentication, bounded queues, deadlines, per-process rate limiting, body/prompt limits, trusted Host validation, sanitized errors/configuration, and defensive response headers. Rate-limit identities use a process-random HMAC so raw credentials are not retained as limiter keys.
 - OpenAI-compatible runtime credentials are read only from named environment variables. Non-loopback model endpoints require explicit opt-in and HTTPS.
 
 Run `python -m budgetroute security-check --config <serving-config>` before deployment. Keep secrets in an orchestrator or secret manager, terminate TLS at a trusted reverse proxy, restrict network access to model runtimes, and collect logs/metrics without prompt bodies.

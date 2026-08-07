@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import hmac
+import secrets
 import threading
 import time
 from collections import defaultdict, deque
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+_IDENTITY_HMAC_KEY = secrets.token_bytes(32)
 
 
 class SlidingWindowRateLimiter:
@@ -40,8 +43,9 @@ class SlidingWindowRateLimiter:
 
 
 def opaque_identity(token: str | None, client_host: str | None) -> str:
-    material = token if token else f"host:{client_host or 'unknown'}"
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+    """Return a stable, process-local limiter key without retaining raw credentials."""
+    material = f"token:{token}" if token else f"host:{client_host or 'unknown'}"
+    return hmac.digest(_IDENTITY_HMAC_KEY, material.encode("utf-8"), "sha256").hex()
 
 
 class BodyLimitMiddleware:
