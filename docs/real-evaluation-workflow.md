@@ -8,11 +8,13 @@ Dataset specifications under `configs/datasets/` pin the Hugging Face source rev
 
 ```bash
 python -m budgetroute materialize-dataset --spec configs/datasets/gsm8k.yaml --output data/materialized/gsm8k-test.jsonl --limit 100
-python -m budgetroute materialize-dataset --spec configs/datasets/mmlu.yaml --output data/materialized/mmlu-test.jsonl --limit 100
+python -m budgetroute materialize-dataset --spec configs/datasets/mmlu.yaml --output data/materialized/mmlu-test.jsonl --limit 100 --sampling stratified --seed 42
 python -m budgetroute materialize-dataset --spec configs/datasets/hotpotqa.yaml --output data/materialized/hotpotqa-validation.jsonl --limit 100 --corpus-dir data/corpora/hotpotqa-validation
 ```
 
 `inspect-data --manifest ...` rehashes the JSONL and rejects modified or mismatched data. Downloads and materialized files are intentionally ignored by Git.
+
+MMLU supports deterministic subject-stratified selection. It ranks rows and subjects by SHA-256 of the seed, samples in round-robin subject order, and records the method, seed, and stratification field in the manifest. This avoids the subject concentration of a source-ordered prefix while remaining exactly reproducible. It is still a sample, not the full MMLU suite.
 
 ## 2. Collect model baselines once
 

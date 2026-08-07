@@ -1,0 +1,7 @@
+extends:
+  - real-gpu-mmlu-100.yaml
+name: qwen25-mmlu-100-rtx3060-live
+benchmark:
+  cache:
+    mode: refresh
+    directory: outputs/cache/real-gpu-mmlu-100-v1

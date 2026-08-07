@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import importlib.util
 import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -58,7 +59,7 @@ class DatasetManifest(BaseModel):
     record_count: int = Field(ge=1)
     records_sha256: str
     corpus_sha256: str | None = None
-    selection: dict[str, int | None]
+    selection: dict[str, int | str | None]
     datasets_version: str
 
 
@@ -186,12 +187,69 @@ def _directory_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def select_source_indices(
+    upstream: Any,
+    spec: DatasetSpec,
+    *,
+    limit: int | None,
+    offset: int,
+    sampling: Literal["head", "stratified"],
+    seed: int,
+) -> list[int]:
+    """Select deterministic upstream rows without relying on process RNG state."""
+
+    if sampling == "head":
+        stop = len(upstream) if limit is None else min(len(upstream), offset + limit)
+        return list(range(offset, stop))
+    if spec.adapter != "mmlu":
+        raise BudgetRouteError("stratified materialization currently supports only MMLU")
+    if offset != 0:
+        raise BudgetRouteError("stratified materialization requires offset 0")
+    if limit is None:
+        raise BudgetRouteError("stratified materialization requires an explicit limit")
+
+    by_subject: dict[str, list[int]] = defaultdict(list)
+    for source_index in range(len(upstream)):
+        row = dict(upstream[source_index])
+        by_subject[str(row.get("subject", "unknown"))].append(source_index)
+
+    def rank(namespace: str, value: object) -> str:
+        material = f"{seed}\0{namespace}\0{value}".encode()
+        return hashlib.sha256(material).hexdigest()
+
+    subjects = sorted(by_subject, key=lambda subject: rank("subject", subject))
+    ranked = {
+        subject: sorted(
+            indices,
+            key=lambda index: rank(subject, index),
+        )
+        for subject, indices in by_subject.items()
+    }
+    selected: list[int] = []
+    round_index = 0
+    target = min(limit, len(upstream))
+    while len(selected) < target:
+        added = False
+        for subject in subjects:
+            if round_index < len(ranked[subject]):
+                selected.append(ranked[subject][round_index])
+                added = True
+                if len(selected) == target:
+                    break
+        if not added:
+            break
+        round_index += 1
+    return selected
+
+
 def materialize_dataset(
     spec_path: str | Path,
     output_path: str | Path,
     *,
     limit: int | None = None,
     offset: int = 0,
+    sampling: Literal["head", "stratified"] = "head",
+    seed: int = 42,
     corpus_dir: str | Path | None = None,
 ) -> DatasetManifest:
     """Download a pinned source revision and write deterministic benchmark artifacts."""
@@ -219,7 +277,14 @@ def materialize_dataset(
             f"could not load pinned dataset {spec.source}@{spec.revision}: "
             f"{type(exc).__name__}: {exc}"
         ) from exc
-    stop = len(upstream) if limit is None else min(len(upstream), offset + limit)
+    source_indices = select_source_indices(
+        upstream,
+        spec,
+        limit=limit,
+        offset=offset,
+        sampling=sampling,
+        seed=seed,
+    )
     records: list[dict[str, Any]] = []
     corpus_target = Path(corpus_dir) if corpus_dir is not None else None
     if spec.adapter == "hotpot_qa" and corpus_target is None:
@@ -232,7 +297,7 @@ def materialize_dataset(
                 f"corpus directory must be empty to avoid mixed manifests: {corpus_target}"
             )
         corpus_target.mkdir(parents=True, exist_ok=True)
-    for source_index in range(offset, stop):
+    for source_index in source_indices:
         raw = dict(upstream[source_index])
         record, corpus = convert_dataset_row(spec, raw, source_index)
         records.append(record.model_dump(mode="json"))
@@ -257,7 +322,13 @@ def materialize_dataset(
         record_count=len(records),
         records_sha256=dataset_hash(destination),
         corpus_sha256=_directory_hash(corpus_target) if corpus_target is not None else None,
-        selection={"offset": offset, "limit": limit},
+        selection={
+            "method": sampling,
+            "offset": offset,
+            "limit": limit,
+            "seed": seed if sampling == "stratified" else None,
+            "stratify_by": "subject" if sampling == "stratified" else None,
+        },
         datasets_version=importlib.metadata.version("datasets"),
     )
     writer.write_json(

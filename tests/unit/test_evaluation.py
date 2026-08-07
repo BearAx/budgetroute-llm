@@ -10,6 +10,8 @@ from budgetroute.evaluation.calibration_metrics import (
 from budgetroute.evaluation.evaluators import exact_match, keyword, numeric, token_f1
 from budgetroute.evaluation.routing_metrics import routing_quality_metrics, selective_metrics
 from budgetroute.evaluation.uncertainty import grouped_bootstrap_mean
+from budgetroute.experiments.runner import _warm_up
+from budgetroute.schemas import BenchmarkRecord, EvaluationType, GenerationRequest
 
 
 def test_deterministic_evaluators() -> None:
@@ -44,3 +46,23 @@ def test_routing_metrics_handle_empty_classes() -> None:
         "coverage": 0.5,
         "selective_accuracy": 1.0,
     }
+
+
+def test_warm_up_uses_a_cache_isolation_marker() -> None:
+    requests: list[GenerationRequest] = []
+
+    class Service:
+        def generate(self, request: GenerationRequest) -> None:
+            requests.append(request)
+
+    record = BenchmarkRecord(
+        id="example",
+        category="test",
+        prompt="Question?",
+        reference_answer="A",
+        evaluation_type=EvaluationType.CLASSIFICATION,
+    )
+
+    _warm_up(Service(), [record], 1, fake=False)
+
+    assert requests[0].metadata["benchmark_warmup"] is True

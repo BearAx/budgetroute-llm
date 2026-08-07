@@ -10,6 +10,7 @@ from budgetroute.evaluation.dataset import (
     convert_dataset_row,
     dataset_hash,
     load_dataset_spec,
+    select_source_indices,
     validate_dataset_manifest,
 )
 from budgetroute.exceptions import BudgetRouteError
@@ -102,3 +103,53 @@ def test_manifest_detects_dataset_tampering(tmp_path: Path) -> None:
     dataset.write_text(dataset.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     with pytest.raises(BudgetRouteError, match="does not match manifest"):
         validate_dataset_manifest(dataset, manifest_path)
+
+
+def test_mmlu_stratified_selection_is_balanced_and_deterministic(project_root: Path) -> None:
+    spec = load_dataset_spec(project_root / "configs/datasets/mmlu.yaml")
+    upstream = [
+        {"subject": subject, "question": f"{subject}-{index}"}
+        for subject in ("algebra", "history", "physics")
+        for index in range(4)
+    ]
+
+    selected = select_source_indices(
+        upstream,
+        spec,
+        limit=6,
+        offset=0,
+        sampling="stratified",
+        seed=42,
+    )
+    repeated = select_source_indices(
+        upstream,
+        spec,
+        limit=6,
+        offset=0,
+        sampling="stratified",
+        seed=42,
+    )
+
+    assert selected == repeated
+    assert len(set(selected)) == 6
+    assert {
+        subject: sum(upstream[index]["subject"] == subject for index in selected)
+        for subject in {"algebra", "history", "physics"}
+    } == {
+        "algebra": 2,
+        "history": 2,
+        "physics": 2,
+    }
+
+
+def test_stratified_selection_rejects_unsupported_dataset(project_root: Path) -> None:
+    spec = load_dataset_spec(project_root / "configs/datasets/gsm8k.yaml")
+    with pytest.raises(BudgetRouteError, match="supports only MMLU"):
+        select_source_indices(
+            [{"question": "one"}],
+            spec,
+            limit=1,
+            offset=0,
+            sampling="stratified",
+            seed=42,
+        )

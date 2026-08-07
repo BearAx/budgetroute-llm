@@ -40,6 +40,9 @@ def _warm_up(service: Any, records: list[BenchmarkRecord], runs: int, fake: bool
         record = records[index % len(records)]
         metadata = dict(record.metadata)
         metadata["must_abstain"] = record.must_abstain
+        # Keep warm-up generations out of measured cache entries. Request IDs are
+        # intentionally excluded from cache keys, so an explicit marker is needed.
+        metadata["benchmark_warmup"] = True
         if fake:
             metadata["fake_reference_answer"] = record.reference_answer
             metadata["fake_small_success"] = True
