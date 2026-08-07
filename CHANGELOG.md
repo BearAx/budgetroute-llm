@@ -4,7 +4,13 @@ All notable changes follow Keep a Changelog conventions. The project uses semant
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+
+- Deterministic subject-stratified MMLU materialization, a cache-isolated warmup marker, pinned live/replay RTX 3060 benchmark profiles, and a curated Qwen2.5/MMLU-100 result card with machine-readable evidence.
+
+### Fixed
+
+- Transformers cleanup now releases runtime references and forces cyclic collection between repeated replay-policy model loads, preventing the observed Windows `torch_cpu.dll` verifier crash.
 
 ## [0.6.0] - 2026-08-07
 

@@ -4,9 +4,9 @@ Phase 6 and 7 reduce the largest architectural gaps, but software cannot erase m
 
 | Area | Repository mitigation | Remaining boundary / required evidence |
 |---|---|---|
-| Tiny development sample | Revision-pinned public adapters, content hashes, group-safe splits, grouped bootstrap intervals, and minimum-sample claim warnings | A representative licensed dataset, adequate sample size, domain review, and external validity still require a real study |
+| Tiny development sample | Revision-pinned public adapters, content hashes, group-safe splits, grouped bootstrap intervals, minimum-sample claim warnings, and one published 100-record stratified MMLU study | The published sample is still small; representative domain data, larger samples, repeated studies, domain review, and external validity remain required |
 | Fake backend | Every response/artifact is explicitly fake and workflows match real interfaces | Fake quality, confidence, and latency are never model or capacity evidence |
-| Model/hardware variance | Exact revisions/config/environment metadata, compatibility probes, warm/cold separation, and real HTTP load artifacts | Quality and speed remain specific to weights, prompt, runtime, drivers, hardware, traffic, and thermals |
+| Model/hardware variance | Exact revisions/config/environment metadata, compatibility probes, warm/cold separation, real HTTP load artifacts, and a named RTX 3060/Qwen2.5 result | Quality and speed remain specific to weights, prompt, runtime, drivers, hardware, traffic, background load, and thermals |
 | Confidence calibration | Delayed-label joins, chronological holdout, Brier/ECE gates, immutable promotion, change points, and rollback | Calibration can fail under future shift; representative recent labels and post-deployment monitoring remain mandatory |
 | Drift | Numeric mean/quantile and category-distribution drift plus durable feature summaries | These do not prove semantic, label, factuality, abuse, or safety drift |
 | Deterministic evaluation | Final-answer numeric extraction supports decimals/scientific notation/fractions/percentages; keyword matching respects phrases; bootstrap uncertainty is recorded | Exact metrics still miss open-ended usefulness, factuality, style, and safety; use domain experts or a validated optional judge |

@@ -42,6 +42,15 @@ python -m budgetroute verify-replay --config configs/benchmarks/real-gsm8k.yaml 
 
 The verifier refreshes live entries, replays them without model initialization, and compares answer, route, execution, usage, raw confidence, uncertainty signals, and fake/real identity exactly.
 
+The published RTX 3060 / MMLU-100 profiles use a `read_write` config for replay and a separate `refresh` config for measured live execution:
+
+```bash
+python -m budgetroute benchmark --config configs/benchmarks/real-gpu-mmlu-100-live.yaml
+python -m budgetroute verify-replay --config configs/benchmarks/real-gpu-mmlu-100.yaml --sample-size 3
+```
+
+The corresponding [curated result card](../reports/benchmarks/qwen25-mmlu-100-rtx3060.md) shows how to publish a bounded claim without checking in the generated cache, dataset, or raw model output.
+
 ## 4. Train and calibrate the router
 
 ```bash

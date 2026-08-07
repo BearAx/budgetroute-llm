@@ -11,6 +11,7 @@
 - [Deployment](deployment.md): tenant/TLS setup, same-host replicas, review/audit/adaptation, load, Docker, GitHub controls.
 - [Security policy](../SECURITY.md): private disclosure, supported versions, automated controls, limitations.
 - [Reproducibility](reproducibility.md): run identity, hashes, metadata, artifact contract.
+- [Published real benchmark](../reports/benchmarks/qwen25-mmlu-100-rtx3060.md): Qwen2.5, stratified MMLU-100, RTX 3060 Laptop GPU, results and limits.
 - [Limitations](limitations.md): implemented mitigations versus infrastructure, evidence, and model-safety boundaries.
 - [Portfolio notes](portfolio-notes.md): descriptions, resume placeholders, demo, interviews.
 - [Decisions](decisions/index.md): concise architecture decision records.

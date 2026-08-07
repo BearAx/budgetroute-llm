@@ -10,6 +10,7 @@ The project separates model backends, scheduling/load telemetry, routing, retrie
 
 ## Resume bullets
 
+- Built and benchmarked a quality-aware Qwen2.5 router on 100 subject-stratified MMLU questions using an RTX 3060 Laptop GPU; the heuristic routed 78% of requests to the 0.5B model and measured 390 ms p50 / 490 ms p95 at 46% accuracy versus 461 ms / 537 ms at 57% for the 1.5B baseline. Cite the [benchmark card](../reports/benchmarks/qwen25-mmlu-100-rtx3060.md) and keep the measured quality trade-off explicit.
 - Built a quality-aware LLM routing system across small/large models, retrieval, cascade, and abstention; on **[real dataset/model/hardware]**, achieved **[measured quality]** at **[measured p50/p95 latency]** versus **[baseline]**.
 - Engineered reproducible experiment artifacts, deterministic evaluation, calibration metrics, FastAPI serving, and offline CI with **[real test count/coverage at time of application]**.
 - Implemented optional CPU/CUDA Transformers execution and portable cosine retrieval, reducing **[measured compute or latency]** by **[real measured percentage]** at a **[real configured quality target]**.
@@ -18,7 +19,7 @@ The project separates model backends, scheduling/load telemetry, routing, retrie
 - Implemented transactional same-host replica coordination, scoped tenant access, durable review/feedback, tamper-evident audit verification, and gated delayed-label recalibration; validated **[real deployment topology and evidence]**.
 - Trained a separate retrieval-benefit policy and added revision-pinned semantic HNSW retrieval; measured **[recall/quality delta/latency]** on **[named corpus and embedding revision]**.
 
-Replace every bracket only with traceable real artifacts. Do not use fake benchmark values.
+Use the first bullet as the current evidence-backed version. Replace the remaining brackets only with traceable real artifacts; never use fake benchmark values or imply that the heuristic preserved always-large quality in this study.
 
 ## Two-minute demo
 

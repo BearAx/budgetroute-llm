@@ -1,4 +1,3 @@
 # Reports
 
-Tracked files here are documentation or reusable templates only. Generated experiment reports live under ignored `outputs/<run-id>/report/` so every figure remains tied to its source artifacts. Do not copy fake smoke values into project documentation as performance claims.
-
+Tracked files here are documentation, reusable templates, or reviewed real-run evidence under `benchmarks/`. Generated experiment reports live under ignored `outputs/<run-id>/report/` so every figure remains tied to its source artifacts. Never publish fake smoke values as performance claims.

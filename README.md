@@ -2,7 +2,7 @@
 
 BudgetRoute-LLM is a typed, quality-aware language-model routing system. It combines small and large model backends, retrieval, confidence cascades, abstention, and durable human review with reproducible evaluation and a tenant-aware service boundary.
 
-> **Status: v0.6 research and deployment-validation implementation. No official comparative model or hardware result is claimed.** The offline suite validates software behavior; fake timings validate instrumentation only. Any resume or production claim must cite preserved artifacts from representative data, models, runtimes, and hardware.
+> **Status: v0.6 research and deployment-validation implementation with one published real GPU study.** The MMLU-100 result below is narrow, hardware-specific evidence; it is not a universal model, routing, capacity, or production claim. Fake timings remain instrumentation-only.
 
 ## What it answers
 
@@ -48,7 +48,7 @@ Earlier milestones also provide revision-pinned public dataset adapters, content
 | Fake | Tests, CI, architecture demos | No | `configs/serving/fake.yaml` |
 | Distributed fake | Tenant/review/audit/replica workflow | No model network | `configs/serving/distributed.yaml` |
 | CPU smoke | Pinned public-data/model integration | Download, CPU | `configs/benchmarks/real-cpu-gsm8k-smoke.yaml` |
-| Local GPU | Representative live experiments | Download, CUDA | `configs/benchmarks/full.yaml` |
+| Local GPU | Published Qwen2.5 / MMLU-100 study | Download, CUDA | `configs/benchmarks/real-gpu-mmlu-100-live.yaml` |
 | Local servers | vLLM/llama.cpp/Ollama-compatible serving | Local endpoints | `configs/serving/local-openai-compatible.yaml` |
 
 Fake output, confidence, and artificial latency are marked `fake: true` and are never performance evidence.
@@ -81,6 +81,19 @@ python -m budgetroute compatibility-matrix --config configs/serving/fake.yaml
 ```
 
 The benchmark creates an ignored, unique `outputs/<UTC>_fake-smoke/` directory with resolved config, environment/Git metadata, predictions, routes, timings, errors, metrics, and reports. A fake warning is embedded in its artifacts.
+
+## Published real benchmark
+
+The first curated live result compares Qwen2.5-0.5B, Qwen2.5-1.5B, heuristic routing, and a raw-confidence cascade on 100 deterministic subject-stratified MMLU test questions using an RTX 3060 Laptop GPU. The clean live run completed 400/400 requests with zero failures.
+
+| Policy | Accuracy (95% CI) | p50 | p95 |
+|---|---:|---:|---:|
+| Always small | 43% (33%-53%) | 372.0 ms | 452.5 ms |
+| Always large | 57% (47%-66%) | 461.4 ms | 536.9 ms |
+| Heuristic (78 small / 22 large) | 46% (36%-56%) | 390.3 ms | 490.1 ms |
+| Cascade (12 escalations) | 43% (33%-52%) | 385.8 ms | 586.4 ms |
+
+The heuristic was faster than always-large but 11 percentage points lower in observed accuracy; the cascade did not improve quality and worsened tail latency. These are useful negative results, not a quality-preserving routing claim. See the [technical benchmark card](reports/benchmarks/qwen25-mmlu-100-rtx3060.md) and [machine-readable evidence](reports/benchmarks/qwen25-mmlu-100-rtx3060.json) for exact revisions, hardware, hashes, protocol, uncertainty, and limitations.
 
 ## Distributed service setup
 
