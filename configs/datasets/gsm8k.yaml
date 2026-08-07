@@ -1,0 +1,11 @@
+schema_version: 1
+name: gsm8k
+adapter: gsm8k
+source: openai/gsm8k
+config_name: main
+revision: 740312add88f781978c0658806c59bc2815b9866
+split: test
+license: MIT
+homepage: https://huggingface.co/datasets/openai/gsm8k
+prompt_version: v1
+

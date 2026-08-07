@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from budgetroute.config import (
     AppConfig,
     BackendConfig,
+    BenchmarkConfig,
     RoutingConfig,
     load_config,
     validate_runtime_config,
@@ -49,3 +50,24 @@ def test_runtime_validation_rejects_missing_learned_artifact(fake_config: AppCon
     )
     with pytest.raises(ConfigurationError, match="artifact does not exist"):
         validate_runtime_config(learned)
+
+
+def test_real_benchmark_can_require_revision_pins() -> None:
+    backend = BackendConfig(type="transformers", model_id="local", device="cpu")
+    with pytest.raises(ValidationError, match="requires pinned model revisions"):
+        AppConfig(
+            mode="cpu",
+            small_backend=backend,
+            large_backend=backend,
+            benchmark=BenchmarkConfig(fake=False, require_pinned_revisions=True),
+        )
+
+
+def test_non_loopback_api_requires_authentication(fake_config: AppConfig) -> None:
+    with pytest.raises(ValidationError, match="non-loopback API binding requires"):
+        AppConfig.model_validate(
+            {
+                **fake_config.model_dump(mode="python"),
+                "api": {**fake_config.api.model_dump(), "host": "0.0.0.0"},
+            }
+        )

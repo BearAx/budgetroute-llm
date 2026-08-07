@@ -18,6 +18,8 @@ def policy_csv(metrics: dict[str, Any]) -> str:
         "throughput_requests_per_second",
         "escalations",
         "abstentions",
+        "human_review_requests",
+        "estimated_cost_units",
     ]
     writer = csv.DictWriter(buffer, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
@@ -33,6 +35,8 @@ def policy_csv(metrics: dict[str, Any]) -> str:
                 "throughput_requests_per_second": values.get("throughput_requests_per_second"),
                 "escalations": values.get("escalations"),
                 "abstentions": values.get("abstentions"),
+                "human_review_requests": values.get("human_review_requests"),
+                "estimated_cost_units": values.get("estimated_cost_units"),
             }
         )
     return buffer.getvalue()

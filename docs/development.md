@@ -15,9 +15,10 @@ python -m build
 
 Use the narrowest test first, then the full gate. Tests under `real_model` are optional and excluded from CI unless deliberately selected. Default tests must stay offline.
 
+Run `python -m budgetroute security-check --config configs/serving/fake.yaml` for local configuration and use `configs/serving/secure.yaml` with a temporary environment secret when changing transport controls. Never print secret values in tests or artifacts. Changes to batching, load routing, monitoring, authentication, endpoint validation, or GitHub workflows require focused tests and corresponding architecture/deployment/security documentation.
+
 ## Change process
 
-Read `AGENTS.md` and relevant architecture/method docs. Substantial changes require an execution plan under `docs/exec-plans/` according to `PLANS.md`. Preserve dependency injection and public schema compatibility. Add tests, update configuration and public documentation, and record methodology changes explicitly.
+Read the relevant architecture, decision, and methodology documents before changing behavior. Substantial changes should explain scope, architecture impact, staged implementation, validation, risks, and final outcome in their issue or pull request. Preserve dependency injection and public schema compatibility. Add tests, update configuration/public documentation, and record methodology changes explicitly.
 
 Benchmark claims need preserved real artifacts and compatible comparisons. Fake artifacts may validate workflows but never support performance claims.
-

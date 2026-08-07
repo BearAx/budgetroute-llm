@@ -1,0 +1,7 @@
+routing:
+  policy: load_aware
+  difficulty_threshold: 0.35
+  target_latency_ms: 1000
+  overload_threshold: 1.0
+  human_review_enabled: true
+  human_review_threshold: 0.8

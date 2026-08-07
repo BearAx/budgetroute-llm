@@ -118,6 +118,9 @@ class FakeBackend:
             "fake": True,
             "configured_quality": self.config.quality,
             "artificial_latency_ms": self.config.artificial_latency_ms,
+            "max_concurrency": self.config.max_concurrency,
+            "input_cost_units_per_1k_tokens": self.config.input_cost_units_per_1k_tokens,
+            "output_cost_units_per_1k_tokens": self.config.output_cost_units_per_1k_tokens,
         }
 
     def cleanup(self) -> None:

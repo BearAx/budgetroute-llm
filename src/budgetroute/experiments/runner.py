@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from budgetroute.config import AppConfig
-from budgetroute.evaluation.dataset import dataset_hash, load_dataset
+from budgetroute.evaluation.dataset import (
+    dataset_hash,
+    load_dataset,
+    validate_dataset_manifest,
+)
 from budgetroute.evaluation.harness import evaluate_records
 from budgetroute.evaluation.metrics import aggregate_metrics
 from budgetroute.evaluation.routing_metrics import routing_quality_metrics
@@ -53,6 +57,11 @@ def _warm_up(service: Any, records: list[BenchmarkRecord], runs: int, fake: bool
 def run_benchmark(config: AppConfig, repository_root: Path | None = None) -> Path:
     root = (repository_root or Path.cwd()).resolve()
     records = load_dataset(config.benchmark.dataset_path)
+    dataset_manifest: dict[str, Any] | None = None
+    if config.benchmark.dataset_manifest_path is not None:
+        dataset_manifest = validate_dataset_manifest(
+            config.benchmark.dataset_path, config.benchmark.dataset_manifest_path
+        ).model_dump(mode="json")
     if config.benchmark.fake and (
         config.small_backend.type != "fake" or config.large_backend.type != "fake"
     ):
@@ -75,17 +84,23 @@ def run_benchmark(config: AppConfig, repository_root: Path | None = None) -> Pat
         service = build_service(policy_run_config)
         try:
             service.initialize()
-            backends[policy_name] = service.metadata()
-            backends[policy_name]["warmup_ms"] = _warm_up(
-                service, records, config.benchmark.warmup_runs, config.benchmark.fake
+            warmup_runs = (
+                0 if config.benchmark.cache.mode == "read_only" else config.benchmark.warmup_runs
             )
+            warmup_ms = _warm_up(service, records, warmup_runs, config.benchmark.fake)
             predictions, routes, timings = evaluate_records(
-                service, measured, fake=config.benchmark.fake
+                service,
+                measured,
+                fake=config.benchmark.fake,
+                batch_size=config.benchmark.batch_size,
+                concurrency=config.benchmark.concurrency,
             )
             all_predictions.extend(predictions)
             all_routes.extend(routes)
             all_timings.extend({"policy": policy_name, **item} for item in timings)
             policy_metrics[policy_name] = aggregate_metrics(predictions)
+            backends[policy_name] = service.metadata()
+            backends[policy_name]["warmup_ms"] = warmup_ms
         finally:
             service.close()
 
@@ -139,6 +154,36 @@ def run_benchmark(config: AppConfig, repository_root: Path | None = None) -> Pat
     )
     metadata["status"] = "completed_with_errors" if errors else "completed"
     metadata["error_count"] = len(errors)
+    metadata["replay"] = config.benchmark.cache.mode == "read_only"
+    metadata["generation_cache"] = config.benchmark.cache.model_dump(mode="json")
+    metadata["dataset_manifest"] = dataset_manifest
     writer.write_json("run.json", metadata)
     generate_report(run_dir)
     return run_dir
+
+
+def collect_baselines(config: AppConfig, repository_root: Path | None = None) -> Path:
+    """Generate always-small and always-large outcomes and populate the shared cache."""
+
+    policies = ["always_small", "always_large"]
+    if config.retrieval.enabled:
+        policies.extend(["retrieval_first", "cascade"])
+    benchmark = config.benchmark.model_copy(
+        update={
+            "policies": policies,
+            "cache": config.benchmark.cache.model_copy(update={"mode": "read_write"}),
+        }
+    )
+    return run_benchmark(config.model_copy(update={"benchmark": benchmark}), repository_root)
+
+
+def replay_benchmark(config: AppConfig, repository_root: Path | None = None) -> Path:
+    """Evaluate configured policies without initializing model weights or generating tokens."""
+
+    benchmark = config.benchmark.model_copy(
+        update={
+            "warmup_runs": 0,
+            "cache": config.benchmark.cache.model_copy(update={"mode": "read_only"}),
+        }
+    )
+    return run_benchmark(config.model_copy(update={"benchmark": benchmark}), repository_root)

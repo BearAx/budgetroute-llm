@@ -10,13 +10,14 @@ import numpy as np
 
 from budgetroute.exceptions import RouterTrainingError
 from budgetroute.routing.base import feature_snapshot
+from budgetroute.routing.calibration import ProbabilityCalibrator
 from budgetroute.schemas import GenerationRequest, RequestFeatures, RouteDecision, RouteName
 
 
 class LearnedPolicy:
     name = "learned"
 
-    def __init__(self, artifact_path: Path, success_threshold: float = 0.5) -> None:
+    def __init__(self, artifact_path: Path, success_threshold: float | None = None) -> None:
         self.artifact_path = artifact_path
         self.success_threshold = success_threshold
         self._artifact: dict[str, Any] | None = None
@@ -47,14 +48,19 @@ class LearnedPolicy:
         if hasattr(model, "predict_proba"):
             probabilities = model.predict_proba(vector)[0]
             classes = list(model.classes_)
-            success_probability = (
+            raw_success_probability = (
                 float(probabilities[classes.index(1)]) if 1 in classes else float(classes[0] == 1)
             )
         else:
-            success_probability = float(model.predict(vector)[0])
-        route = (
-            RouteName.SMALL if success_probability >= self.success_threshold else RouteName.LARGE
+            raw_success_probability = float(model.predict(vector)[0])
+        calibrator = artifact.get("calibrator", ProbabilityCalibrator())
+        success_probability = calibrator.transform_one(raw_success_probability)
+        serving_threshold = (
+            self.success_threshold
+            if self.success_threshold is not None
+            else float(artifact.get("serving_threshold", 0.5))
         )
+        route = RouteName.SMALL if success_probability >= serving_threshold else RouteName.LARGE
         return RouteDecision(
             route=route,
             confidence=max(success_probability, 1.0 - success_probability),
@@ -65,5 +71,5 @@ class LearnedPolicy:
             ),
             policy=self.name,
             features=feature_snapshot(features),
-            thresholds={"small_success": self.success_threshold},
+            thresholds={"small_success": serving_threshold},
         )

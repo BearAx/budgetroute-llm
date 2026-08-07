@@ -1,0 +1,20 @@
+extends:
+  - ../base.yaml
+  - ../models/local-gpu.yaml
+retrieval:
+  enabled: false
+routing:
+  policy: heuristic
+benchmark:
+  dataset_path: data/materialized/gsm8k-test.jsonl
+  dataset_manifest_path: data/materialized/gsm8k-test.manifest.json
+  policies: [always_small, always_large, heuristic, cascade]
+  warmup_runs: 2
+  measured_runs: 1
+  quality_threshold: 1.0
+  cache:
+    mode: read_write
+    directory: outputs/cache/generations
+  replay_verify_samples: 3
+  require_pinned_revisions: true
+  fake: false

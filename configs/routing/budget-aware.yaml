@@ -1,0 +1,9 @@
+routing:
+  policy: budget_aware
+  target_latency_ms: 1000
+  max_estimated_cost_units: 0.02
+  quality_weight: 0.6
+  latency_weight: 0.25
+  cost_weight: 0.15
+  human_review_enabled: true
+  human_review_threshold: 0.8

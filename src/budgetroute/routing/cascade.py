@@ -27,7 +27,9 @@ class CascadePolicy:
         )
 
 
-def escalation_reason(confidence: float, threshold: float) -> str | None:
+def escalation_reason(confidence: float | None, threshold: float) -> str | None:
+    if confidence is None:
+        return "Small-backend confidence was unavailable"
     if confidence >= threshold:
         return None
     return f"Small-backend confidence {confidence:.3f} was below {threshold:.3f}"

@@ -12,5 +12,5 @@ fi
 "$PYTHON_BIN" -m ruff check .
 "$PYTHON_BIN" -m mypy src
 "$PYTHON_BIN" -m pytest
+"$PYTHON_BIN" -m budgetroute security-check --config configs/serving/fake.yaml
 "$PYTHON_BIN" -m build
-

@@ -1,0 +1,22 @@
+mode: fake
+small_backend:
+  type: fake
+  device: cpu
+  precision: fp32
+  artificial_latency_ms: 1
+  quality: 0.68
+  generation:
+    max_new_tokens: 128
+    temperature: 0
+    top_p: 1
+large_backend:
+  type: fake
+  device: cpu
+  precision: fp32
+  artificial_latency_ms: 3
+  quality: 0.96
+  generation:
+    max_new_tokens: 128
+    temperature: 0
+    top_p: 1
+

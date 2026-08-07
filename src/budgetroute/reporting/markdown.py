@@ -11,7 +11,16 @@ def _format(value: Any, digits: int = 3) -> str:
 
 def render_report(metrics: dict[str, Any], run: dict[str, Any]) -> str:
     fake = bool(run.get("fake") or metrics.get("fake"))
-    label = "FAKE SMOKE BENCHMARK - NOT REAL MODEL PERFORMANCE" if fake else "REAL EXECUTION REPORT"
+    replay = bool(run.get("replay"))
+    label = (
+        "FAKE SMOKE BENCHMARK - NOT REAL MODEL PERFORMANCE"
+        if fake
+        else (
+            "CACHE REPLAY REPORT - QUALITY AND MODEL COSTS FROM RECORDED GENERATIONS"
+            if replay
+            else "REAL EXECUTION REPORT"
+        )
+    )
     lines = [
         f"# BudgetRoute-LLM report: {run.get('run_id', 'unknown run')}",
         "",
@@ -28,29 +37,31 @@ def render_report(metrics: dict[str, Any], run: dict[str, Any]) -> str:
         f"- Measured runs: {run.get('measured_runs', 'unknown')}",
         f"- Concurrency: {run.get('concurrency', 'unknown')}",
         f"- Batch size: {run.get('batch_size', 'unknown')}",
+        f"- Model-free cache replay: {replay}",
         "",
         "## Policy comparison",
         "",
-        "| Policy | Requests | Mean quality | p50 ms | p95 ms | Peak RSS MiB | Escalations | Abstentions |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Policy | Requests | Mean quality | p50 ms | p95 ms | Cost units | Escalations | Abstentions | Human review |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     policies = metrics.get("policies", {})
     if not policies:
-        lines.append("| No policy results available | 0 | n/a | n/a | n/a | n/a | 0 | 0 |")
+        lines.append("| No policy results available | 0 | n/a | n/a | n/a | n/a | 0 | 0 | 0 |")
     for name, values in sorted(policies.items()):
         latency = values.get("latency", {})
         lines.append(
             f"| {name} | {values.get('request_count', 0)} | {_format(values.get('mean_quality'))} "
             f"| {_format(latency.get('p50_ms'))} | {_format(latency.get('p95_ms'))} "
-            f"| {_format(values.get('process_rss_mb_peak'), 1)} "
-            f"| {values.get('escalations', 0)} | {values.get('abstentions', 0)} |"
+            f"| {_format(values.get('estimated_cost_units'), 6)} "
+            f"| {values.get('escalations', 0)} | {values.get('abstentions', 0)} "
+            f"| {values.get('human_review_requests', 0)} |"
         )
     lines.extend(
         [
             "",
             "## Interpretation limits",
             "",
-            "The bundled sample is designed to validate architecture and metrics, not to establish scientific conclusions. Latency percentiles from small samples are unstable. Compare runs only when hardware, model, warm-up, concurrency, batching, and configuration are compatible.",
+            "The bundled sample is designed to validate architecture and metrics, not to establish scientific conclusions. Latency percentiles from small samples are unstable. Cost units are configured estimates, not invoices. Compare runs only when hardware, model, warm-up, concurrency, batching, scheduler, and configuration are compatible.",
             "",
             "## Generated files",
             "",

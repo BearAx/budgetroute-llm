@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import time
 from contextlib import nullcontext
 from typing import Any
 
 from budgetroute.config import BackendConfig
 from budgetroute.exceptions import BackendError
-from budgetroute.schemas import BackendGeneration, BackendName, GenerationRequest
+from budgetroute.schemas import (
+    BackendGeneration,
+    BackendName,
+    ConfidenceSignals,
+    GenerationRequest,
+)
 
 
 class TransformersBackend:
@@ -23,6 +29,7 @@ class TransformersBackend:
         self._optimization: dict[str, Any] = {
             "compile_requested": config.compile,
             "compile_enabled": False,
+            "compile_first_execution_ms": None,
             "quantization_requested": config.quantization,
             "quantization_enabled": False,
         }
@@ -43,6 +50,7 @@ class TransformersBackend:
             return
         self._require_dependencies()
         import torch
+        import transformers
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self._torch = torch
@@ -66,7 +74,7 @@ class TransformersBackend:
                 )
         model_kwargs: dict[str, Any] = {
             "trust_remote_code": self.config.trust_remote_code,
-            "torch_dtype": dtype,
+            ("dtype" if int(transformers.__version__.split(".")[0]) >= 5 else "torch_dtype"): dtype,
         }
         if self.config.quantization != "none":
             if importlib.util.find_spec("bitsandbytes") is None:
@@ -75,7 +83,8 @@ class TransformersBackend:
                 )
             from transformers import BitsAndBytesConfig
 
-            model_kwargs["quantization_config"] = BitsAndBytesConfig(
+            bitsandbytes_config: Any = BitsAndBytesConfig
+            model_kwargs["quantization_config"] = bitsandbytes_config(
                 load_in_8bit=self.config.quantization == "int8",
                 load_in_4bit=self.config.quantization == "int4",
             )
@@ -86,9 +95,17 @@ class TransformersBackend:
         tokenizer_id = self.config.tokenizer_id or model_id
         try:
             self._tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer_id, trust_remote_code=self.config.trust_remote_code
+                tokenizer_id,
+                revision=self.config.tokenizer_revision or self.config.revision,
+                trust_remote_code=self.config.trust_remote_code,
+                local_files_only=self.config.local_files_only,
             )
-            self._model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
+            self._model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                revision=self.config.revision,
+                local_files_only=self.config.local_files_only,
+                **model_kwargs,
+            )
         except Exception as exc:
             self.cleanup()
             raise BackendError(
@@ -96,6 +113,7 @@ class TransformersBackend:
             ) from exc
         if self._tokenizer.pad_token_id is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
+        self._tokenizer.padding_side = "left"
         if self.config.quantization == "none":
             self._model.to(self._device)
         self._model.eval()
@@ -145,6 +163,9 @@ class TransformersBackend:
         generation = self.config.generation
         max_new_tokens = request.max_new_tokens or generation.max_new_tokens
         synchronize = self._device == "cuda"
+        torch.manual_seed(generation.seed)
+        if synchronize:
+            torch.cuda.manual_seed_all(generation.seed)
         if synchronize:
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
@@ -159,13 +180,21 @@ class TransformersBackend:
         )
         try:
             with torch.inference_mode(), autocast:
+                generation_kwargs: dict[str, Any] = {
+                    "max_new_tokens": max_new_tokens,
+                    "do_sample": generation.temperature > 0,
+                    "repetition_penalty": generation.repetition_penalty,
+                    "pad_token_id": self._tokenizer.pad_token_id,
+                    "return_dict_in_generate": True,
+                    "output_scores": True,
+                }
+                if generation.temperature > 0:
+                    generation_kwargs.update(
+                        {"temperature": generation.temperature, "top_p": generation.top_p}
+                    )
                 output = self._model.generate(
                     **encoded,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=generation.temperature > 0,
-                    temperature=max(generation.temperature, 1e-6),
-                    top_p=generation.top_p,
-                    pad_token_id=self._tokenizer.pad_token_id,
+                    **generation_kwargs,
                 )
         except Exception as exc:
             raise BackendError(
@@ -174,16 +203,57 @@ class TransformersBackend:
         if synchronize:
             torch.cuda.synchronize()
         elapsed_ms = (time.perf_counter_ns() - start) / 1_000_000
-        generated_ids = output[0, input_length:]
+        if (
+            self._optimization["compile_enabled"]
+            and self._optimization["compile_first_execution_ms"] is None
+        ):
+            self._optimization["compile_first_execution_ms"] = elapsed_ms
+        generated_ids = output.sequences[0, input_length:]
         text = str(self._tokenizer.decode(generated_ids, skip_special_tokens=True)).strip()
         output_tokens = int(generated_ids.shape[-1])
-        confidence = 0.5
+        confidence: float | None = None
+        signals: ConfidenceSignals | None = None
+        if output.scores:
+            transition_scores = self._model.compute_transition_scores(
+                output.sequences,
+                output.scores,
+                getattr(output, "beam_indices", None),
+                normalize_logits=True,
+            )[0]
+            selected = transition_scores[: len(output.scores)].detach().float().cpu()
+            if selected.numel():
+                sequence_log_probability = float(selected.sum().item())
+                mean_log_probability = float(selected.mean().item())
+                minimum_log_probability = float(selected.min().item())
+                confidence = float(min(1.0, max(0.0, math.exp(mean_log_probability))))
+                entropies: list[float] = []
+                normalized_entropies: list[float] = []
+                for score in output.scores:
+                    logits = score[0].detach().float()
+                    log_probabilities = torch.log_softmax(logits, dim=-1)
+                    probabilities = torch.exp(log_probabilities)
+                    entropy = float((-(probabilities * log_probabilities)).sum().item())
+                    entropies.append(entropy)
+                    normalized_entropies.append(entropy / max(math.log(logits.numel()), 1.0))
+                signals = ConfidenceSignals(
+                    method="length_normalized_token_likelihood",
+                    token_count=int(selected.numel()),
+                    sequence_log_probability=sequence_log_probability,
+                    mean_token_log_probability=mean_log_probability,
+                    minimum_token_log_probability=minimum_log_probability,
+                    geometric_mean_token_probability=confidence,
+                    mean_token_entropy=sum(entropies) / len(entropies),
+                    normalized_mean_token_entropy=min(
+                        1.0, max(0.0, sum(normalized_entropies) / len(normalized_entropies))
+                    ),
+                )
         return BackendGeneration(
             text=text,
             backend=self.name,
             input_tokens=input_length,
             output_tokens=output_tokens,
             confidence=confidence,
+            confidence_signals=signals,
             generation_ms=elapsed_ms,
             metadata={
                 "fake": False,
@@ -192,23 +262,184 @@ class TransformersBackend:
                 "peak_cuda_mb": (
                     torch.cuda.max_memory_allocated() / (1024 * 1024) if synchronize else None
                 ),
+                "confidence_is_calibrated": False,
             },
         )
 
     def generate_batch(self, requests: list[GenerationRequest]) -> list[BackendGeneration]:
-        # A stable direct implementation; optimized padding-aware batching can replace this
-        # without changing the protocol or the API microbatcher.
-        return [self.generate(request) for request in requests]
+        if not requests:
+            return []
+        if self._model is None or self._tokenizer is None or self._torch is None:
+            raise BackendError("Transformers backend is not initialized")
+        grouped: dict[int, list[tuple[int, GenerationRequest]]] = {}
+        for index, request in enumerate(requests):
+            limit = request.max_new_tokens or self.config.generation.max_new_tokens
+            grouped.setdefault(limit, []).append((index, request))
+        ordered: list[BackendGeneration | None] = [None] * len(requests)
+        for max_new_tokens, indexed_requests in grouped.items():
+            outputs = self._generate_padded_batch(
+                [request for _, request in indexed_requests], max_new_tokens
+            )
+            for (index, _), output in zip(indexed_requests, outputs, strict=True):
+                ordered[index] = output
+        if any(output is None for output in ordered):
+            raise BackendError("Transformers batch did not produce every requested output")
+        return [output for output in ordered if output is not None]
+
+    def _generate_padded_batch(
+        self, requests: list[GenerationRequest], max_new_tokens: int
+    ) -> list[BackendGeneration]:
+        assert self._model is not None
+        assert self._tokenizer is not None
+        assert self._torch is not None
+        torch = self._torch
+        prompts = [self._render_prompt(request.prompt) for request in requests]
+        encoded = self._tokenizer(prompts, return_tensors="pt", padding=True)
+        encoded = {key: value.to(self._device) for key, value in encoded.items()}
+        padded_input_length = int(encoded["input_ids"].shape[-1])
+        input_lengths = [int(value) for value in encoded["attention_mask"].sum(dim=1).tolist()]
+        generation = self.config.generation
+        synchronize = self._device == "cuda"
+        torch.manual_seed(generation.seed)
+        if synchronize:
+            torch.cuda.manual_seed_all(generation.seed)
+            torch.cuda.synchronize()
+            torch.cuda.reset_peak_memory_stats()
+        autocast = (
+            torch.autocast(
+                device_type="cuda",
+                dtype={"fp16": torch.float16, "bf16": torch.bfloat16}[self.config.precision],
+            )
+            if synchronize and self.config.precision in {"fp16", "bf16"}
+            else nullcontext()
+        )
+        started = time.perf_counter_ns()
+        try:
+            with torch.inference_mode(), autocast:
+                kwargs: dict[str, Any] = {
+                    "max_new_tokens": max_new_tokens,
+                    "do_sample": generation.temperature > 0,
+                    "repetition_penalty": generation.repetition_penalty,
+                    "pad_token_id": self._tokenizer.pad_token_id,
+                    "return_dict_in_generate": True,
+                    "output_scores": True,
+                }
+                if generation.temperature > 0:
+                    kwargs.update(
+                        {"temperature": generation.temperature, "top_p": generation.top_p}
+                    )
+                generated = self._model.generate(**encoded, **kwargs)
+        except Exception as exc:
+            raise BackendError(
+                f"Transformers batch generation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        if synchronize:
+            torch.cuda.synchronize()
+        elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+        if (
+            self._optimization["compile_enabled"]
+            and self._optimization["compile_first_execution_ms"] is None
+        ):
+            self._optimization["compile_first_execution_ms"] = elapsed_ms
+        generated_ids = generated.sequences[:, padded_input_length:]
+        transition_scores = (
+            self._model.compute_transition_scores(
+                generated.sequences,
+                generated.scores,
+                getattr(generated, "beam_indices", None),
+                normalize_logits=True,
+            )
+            if generated.scores
+            else None
+        )
+        results: list[BackendGeneration] = []
+        total_output_tokens = 0
+        for row, _request in enumerate(requests):
+            row_ids = generated_ids[row]
+            pad_token_id = self._tokenizer.pad_token_id
+            output_tokens = int((row_ids != pad_token_id).sum().item())
+            if output_tokens == 0 and row_ids.numel():
+                output_tokens = int(row_ids.numel())
+            total_output_tokens += output_tokens
+            text = str(
+                self._tokenizer.decode(row_ids[:output_tokens], skip_special_tokens=True)
+            ).strip()
+            confidence: float | None = None
+            signals: ConfidenceSignals | None = None
+            if transition_scores is not None and output_tokens:
+                selected = transition_scores[row, :output_tokens].detach().float().cpu()
+                sequence_log_probability = float(selected.sum().item())
+                mean_log_probability = float(selected.mean().item())
+                confidence = float(min(1.0, max(0.0, math.exp(mean_log_probability))))
+                entropies: list[float] = []
+                normalized_entropies: list[float] = []
+                for score in generated.scores[:output_tokens]:
+                    logits = score[row].detach().float()
+                    log_probabilities = torch.log_softmax(logits, dim=-1)
+                    probabilities = torch.exp(log_probabilities)
+                    entropy = float((-(probabilities * log_probabilities)).sum().item())
+                    entropies.append(entropy)
+                    normalized_entropies.append(entropy / max(math.log(logits.numel()), 1.0))
+                signals = ConfidenceSignals(
+                    method="length_normalized_token_likelihood",
+                    token_count=output_tokens,
+                    sequence_log_probability=sequence_log_probability,
+                    mean_token_log_probability=mean_log_probability,
+                    minimum_token_log_probability=float(selected.min().item()),
+                    geometric_mean_token_probability=confidence,
+                    mean_token_entropy=sum(entropies) / len(entropies),
+                    normalized_mean_token_entropy=min(
+                        1.0, max(0.0, sum(normalized_entropies) / len(normalized_entropies))
+                    ),
+                )
+            results.append(
+                BackendGeneration(
+                    text=text,
+                    backend=self.name,
+                    input_tokens=input_lengths[row],
+                    output_tokens=output_tokens,
+                    confidence=confidence,
+                    confidence_signals=signals,
+                    generation_ms=elapsed_ms,
+                    metadata={
+                        "fake": False,
+                        "device": self._device,
+                        "batch_size": len(requests),
+                        "padded_input_tokens": padded_input_length,
+                        "confidence_is_calibrated": False,
+                        "peak_cuda_mb": (
+                            torch.cuda.max_memory_allocated() / (1024 * 1024)
+                            if synchronize
+                            else None
+                        ),
+                    },
+                )
+            )
+        aggregate_rate = total_output_tokens / (elapsed_ms / 1000) if elapsed_ms else None
+        for result in results:
+            result.metadata["batch_generated_tokens_per_second"] = aggregate_rate
+        return results
 
     def metadata(self) -> dict[str, Any]:
         return {
             "name": self.name.value,
             "type": "transformers",
             "model_id": self.config.model_id,
+            "revision_requested": self.config.revision,
+            "revision_resolved": getattr(
+                getattr(self._model, "config", None), "_commit_hash", self.config.revision
+            ),
             "tokenizer_id": self.config.tokenizer_id or self.config.model_id,
+            "tokenizer_revision": self.config.tokenizer_revision or self.config.revision,
+            "model_license": self.config.model_license,
+            "model_card": self.config.model_card,
+            "generation": self.config.generation.model_dump(mode="json"),
             "device_requested": self.config.device,
             "device_resolved": self._device,
             "precision": self.config.precision,
+            "max_concurrency": self.config.max_concurrency,
+            "input_cost_units_per_1k_tokens": self.config.input_cost_units_per_1k_tokens,
+            "output_cost_units_per_1k_tokens": self.config.output_cost_units_per_1k_tokens,
             **self._optimization,
         }
 

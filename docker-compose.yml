@@ -9,8 +9,8 @@ services:
       BUDGETROUTE_HOST: 0.0.0.0
       BUDGETROUTE_PORT: "8000"
       BUDGETROUTE_OUTPUT_DIR: /app/outputs
+      BUDGETROUTE_API_KEY: "${BUDGETROUTE_API_KEY:?Set BUDGETROUTE_API_KEY before starting}"
     volumes:
       - ./outputs:/app/outputs
       - ./model-cache:/home/budgetroute/.cache/huggingface
     restart: unless-stopped
-
