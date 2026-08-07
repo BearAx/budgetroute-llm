@@ -1,0 +1,354 @@
+{
+  "schema_version": 1,
+  "report_id": "qwen25-mmlu-500-learned-rtx3060",
+  "claim_type": "descriptive_live_benchmark_negative_result",
+  "conclusion": {
+    "quality_preservation_supported": false,
+    "latency_reduction_supported": false,
+    "summary": "The paired-quality router routed 8% of held-out requests to the small model, made no quality wins over always-large, lost two questions, and had a higher observed p50 latency. The calibrated cascade produced the same two losses while escalating 83% of requests."
+  },
+  "runs": {
+    "paired_baseline": {
+      "run_id": "20260807T121512Z_benchmark",
+      "timestamp_utc": "2026-08-07T12:21:21.378172+00:00",
+      "status": "completed",
+      "fake": false,
+      "replay": false,
+      "benchmark_source_commit": "80b85333b8cbf3484717a8c1f04a3a25a7f6efc0",
+      "git_dirty": false,
+      "configuration_sha256": "8be6a368df379e380a19df3c05505fc62f3b3c3641fe6bc4d50402aadd20ae1f",
+      "dataset_sha256": "5b25d20f38e91120bd3303ad32cc35d54ae9eb0326468532f41dcfaa2b31ede7",
+      "cache_mode": "refresh",
+      "warmup_runs": 1,
+      "measured_runs": 1,
+      "batch_size": 1,
+      "concurrency": 1
+    },
+    "heldout_policy_matrix": {
+      "run_id": "20260807T122221Z_benchmark",
+      "timestamp_utc": "2026-08-07T12:25:53.819890+00:00",
+      "status": "completed",
+      "fake": false,
+      "replay": false,
+      "benchmark_source_commit": "80b85333b8cbf3484717a8c1f04a3a25a7f6efc0",
+      "git_dirty": false,
+      "configuration_sha256": "51f8b39146839961ce225783c6f3ac04b96ea837ab3af1df5846de96b406ac03",
+      "dataset_sha256": "c578c3024ce93db35be6c659570f8b3b5cb4e9393e337b742362aacee1d2bfce",
+      "cache_mode": "refresh",
+      "warmup_runs": 1,
+      "measured_runs": 1,
+      "batch_size": 1,
+      "concurrency": 1
+    }
+  },
+  "dataset": {
+    "source": "cais/mmlu",
+    "config": "all",
+    "split": "test",
+    "revision": "c30699e8356da336a370243923dbaf21066bb9fe",
+    "license": "MIT",
+    "prompt_version": "v1",
+    "parent_record_count": 500,
+    "parent_records_sha256": "5b25d20f38e91120bd3303ad32cc35d54ae9eb0326468532f41dcfaa2b31ede7",
+    "parent_selection": {
+      "method": "stratified",
+      "stratify_by": "subject",
+      "seed": 42
+    },
+    "heldout_record_count": 100,
+    "heldout_records_sha256": "c578c3024ce93db35be6c659570f8b3b5cb4e9393e337b742362aacee1d2bfce",
+    "heldout_selection": {
+      "method": "router_test_split",
+      "stratify_by": "group",
+      "seed": 42,
+      "persisted_before_final_evaluation": true
+    }
+  },
+  "models": {
+    "small": {
+      "id": "Qwen/Qwen2.5-0.5B-Instruct",
+      "revision": "7ae557604adf67be50417f59c2c2f167def9a775"
+    },
+    "large": {
+      "id": "Qwen/Qwen2.5-1.5B-Instruct",
+      "revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306"
+    },
+    "precision": "fp16",
+    "quantization": "none",
+    "compile": false,
+    "max_new_tokens": 8,
+    "temperature": 0.0,
+    "seed": 42
+  },
+  "hardware": {
+    "system": "Lenovo 82JQ",
+    "cpu": "AMD Ryzen 7 5800H",
+    "cpu_cores": 8,
+    "cpu_threads": 16,
+    "memory_gib": 15.86,
+    "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+    "gpu_memory_mib": 6144,
+    "gpu_current_power_ceiling_w": 95,
+    "nvidia_driver": "610.62",
+    "driver_model": "WDDM"
+  },
+  "software": {
+    "os": "Windows 11 Pro build 26200",
+    "python": "3.13.13",
+    "torch": "2.12.1+cu130",
+    "cuda_runtime": "13.0",
+    "transformers": "5.14.1",
+    "datasets": "4.8.5",
+    "numpy": "2.3.5",
+    "scikit_learn": "1.9.0",
+    "joblib": "1.5.3",
+    "budgetroute": "0.6.0"
+  },
+  "paired_baseline": {
+    "requests": 1000,
+    "successful": 1000,
+    "failed": 0,
+    "measurement_wall_ms": 348008.28469999996,
+    "throughput_requests_per_second": 2.8734948102228333,
+    "peak_cuda_mib": 3980.20947265625,
+    "peak_process_rss_mib": 5117.23828125,
+    "policies": [
+      {
+        "policy": "always_small",
+        "requests": 500,
+        "successful": 500,
+        "accuracy": 0.402,
+        "accuracy_ci_95": [0.36, 0.444],
+        "latency_mean_ms": 296.3429414,
+        "latency_p50_ms": 337.7657,
+        "latency_p95_ms": 413.90788,
+        "latency_p99_ms": 448.3241499999999,
+        "throughput_requests_per_second": 3.3701998642701883,
+        "peak_cuda_mib": 3965.2763671875,
+        "input_tokens": 61871,
+        "output_tokens": 3105
+      },
+      {
+        "policy": "always_large",
+        "requests": 500,
+        "successful": 500,
+        "accuracy": 0.552,
+        "accuracy_ci_95": [0.508, 0.594],
+        "latency_mean_ms": 398.911501,
+        "latency_p50_ms": 426.91020000000003,
+        "latency_p95_ms": 484.70681999999994,
+        "latency_p99_ms": 520.6903679999999,
+        "throughput_requests_per_second": 2.5043935715925523,
+        "peak_cuda_mib": 3980.20947265625,
+        "input_tokens": 61871,
+        "output_tokens": 3525
+      }
+    ],
+    "paired_outcomes": {
+      "both_correct": 152,
+      "small_only_correct": 49,
+      "large_only_correct": 124,
+      "neither_correct": 175,
+      "outcome_oracle_accuracy": 0.65
+    }
+  },
+  "router": {
+    "label_strategy": "paired_quality",
+    "label_definition": "small_model_quality >= large_model_quality on paired outcomes",
+    "sample_count": 500,
+    "splits": {
+      "train": {
+        "sample_count": 300,
+        "group_count": 300,
+        "class_counts": {"paired_unsafe": 74, "paired_safe": 226}
+      },
+      "calibration": {
+        "sample_count": 100,
+        "group_count": 100,
+        "class_counts": {"paired_unsafe": 28, "paired_safe": 72}
+      },
+      "test": {
+        "sample_count": 100,
+        "group_count": 100,
+        "class_counts": {"paired_unsafe": 22, "paired_safe": 78}
+      }
+    },
+    "group_disjoint": true,
+    "calibrator": {
+      "method": "temperature",
+      "temperature": 1.40803888555339,
+      "fitted_samples": 100,
+      "warning": null
+    },
+    "serving_threshold": 0.8055265992302447,
+    "calibration_threshold_selection": {
+      "coverage": 0.12,
+      "selective_accuracy": 0.8333333333333334
+    },
+    "test_classification": {
+      "accuracy": 0.26,
+      "precision": 0.75,
+      "recall": 0.07692307692307693,
+      "f1": 0.13953488372093023,
+      "roc_auc": 0.6002331002331003,
+      "brier_score": 0.17801458033215808,
+      "expected_calibration_error": 0.09283628026677954,
+      "confusion_matrix": [[20, 2], [72, 6]],
+      "small_route_share": 0.08
+    },
+    "test_outcomes": {
+      "routed_accuracy": 0.51,
+      "always_small_accuracy": 0.41,
+      "always_large_accuracy": 0.53,
+      "outcome_oracle_accuracy": 0.63,
+      "quality_delta_vs_always_large": -0.020000000000000018,
+      "quality_regret_vs_oracle": 0.12,
+      "small_route_count": 8,
+      "large_route_count": 92
+    },
+    "warning": null
+  },
+  "cascade_calibration": {
+    "source_policy": "always_small",
+    "quality_threshold": 1.0,
+    "target_selective_accuracy": 0.8,
+    "serving_threshold": 0.5323810185237409,
+    "calibrator": {
+      "method": "temperature",
+      "temperature": 20.0,
+      "fitted_samples": 100,
+      "warning": null
+    },
+    "test_roc_auc": 0.6730053741215379,
+    "test_brier_score": 0.2512660596568883,
+    "test_expected_calibration_error": 0.11295100964367422
+  },
+  "heldout_policies": [
+    {
+      "policy": "always_small",
+      "requests": 100,
+      "successful": 100,
+      "failed": 0,
+      "accuracy": 0.41,
+      "accuracy_ci_95": [0.31, 0.51],
+      "latency_mean_ms": 313.423678,
+      "latency_p50_ms": 353.944,
+      "latency_p95_ms": 429.308955,
+      "latency_p99_ms": 451.858693,
+      "throughput_requests_per_second": 3.1867040204888752,
+      "peak_cuda_mib": 3965.2763671875,
+      "input_tokens": 12801,
+      "output_tokens": 630,
+      "escalations": 0,
+      "route_counts": {"small": 100}
+    },
+    {
+      "policy": "always_large",
+      "requests": 100,
+      "successful": 100,
+      "failed": 0,
+      "accuracy": 0.53,
+      "accuracy_ci_95": [0.43, 0.63],
+      "latency_mean_ms": 408.596404,
+      "latency_p50_ms": 423.31005,
+      "latency_p95_ms": 528.6218399999999,
+      "latency_p99_ms": 543.7032980000004,
+      "throughput_requests_per_second": 2.445086260027012,
+      "peak_cuda_mib": 3979.60888671875,
+      "input_tokens": 12801,
+      "output_tokens": 708,
+      "escalations": 0,
+      "route_counts": {"large": 100}
+    },
+    {
+      "policy": "learned",
+      "requests": 100,
+      "successful": 100,
+      "failed": 0,
+      "accuracy": 0.51,
+      "accuracy_ci_95": [0.41, 0.61],
+      "latency_mean_ms": 415.391826,
+      "latency_p50_ms": 445.93815,
+      "latency_p95_ms": 502.99911,
+      "latency_p99_ms": 530.663933,
+      "throughput_requests_per_second": 2.4047208248015446,
+      "peak_cuda_mib": 3965.4638671875,
+      "input_tokens": 12801,
+      "output_tokens": 709,
+      "escalations": 0,
+      "route_counts": {"small": 8, "large": 92},
+      "paired_comparison_vs_always_large": {
+        "both_correct": 51,
+        "learned_only_correct": 0,
+        "always_large_only_correct": 2,
+        "neither_correct": 47
+      }
+    },
+    {
+      "policy": "cascade",
+      "requests": 100,
+      "successful": 100,
+      "failed": 0,
+      "accuracy": 0.51,
+      "accuracy_ci_95": [0.41, 0.61],
+      "latency_mean_ms": 658.53291,
+      "latency_p50_ms": 689.7165500000001,
+      "latency_p95_ms": 895.86006,
+      "latency_p99_ms": 927.9528270000002,
+      "throughput_requests_per_second": 1.5174343180490164,
+      "peak_cuda_mib": 3979.60888671875,
+      "input_tokens": 23642,
+      "output_tokens": 1219,
+      "escalations": 83,
+      "route_counts": {"cascade": 100},
+      "paired_comparison_vs_always_large": {
+        "both_correct": 51,
+        "cascade_only_correct": 0,
+        "always_large_only_correct": 2,
+        "neither_correct": 47
+      }
+    }
+  ],
+  "heldout_overall": {
+    "requests": 400,
+    "successful": 400,
+    "failed": 0,
+    "measurement_wall_ms": 179764.3174,
+    "throughput_requests_per_second": 2.225135698704575,
+    "peak_cuda_mib": 3979.60888671875,
+    "peak_process_rss_mib": 5420.1875,
+    "input_tokens": 62045,
+    "output_tokens": 3266
+  },
+  "uncertainty": {
+    "method": "grouped_percentile_bootstrap",
+    "confidence_level": 0.95,
+    "samples": 2000,
+    "baseline_groups_per_policy": 500,
+    "heldout_groups_per_policy": 100,
+    "paired_delta_interval_computed": false
+  },
+  "robustness_checks": {
+    "clean_rerun_semantic_comparison": {
+      "comparisons": 1000,
+      "matches": 1000,
+      "mismatches": 0,
+      "fields": ["answer", "quality_score", "error", "route"]
+    },
+    "live_replay_verification": {
+      "sample_records": 3,
+      "policies": 4,
+      "comparisons": 12,
+      "matches": 12,
+      "mismatches": 0,
+      "agreement": 1.0
+    }
+  },
+  "claim_boundary": [
+    "The held-out sample is untouched by fitting and threshold selection but comes from the same MMLU-500 development universe.",
+    "One sequential live pass per policy is not a repeated timing or capacity study.",
+    "Overlapping per-policy bootstrap intervals are not a paired hypothesis test.",
+    "Configured monetary cost rates are zero; no savings, energy, or billing claim is made.",
+    "MMLU exact-match accuracy does not establish deployment-domain usefulness, factual reliability, or safety."
+  ]
+}

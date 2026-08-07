@@ -2,7 +2,7 @@
 
 BudgetRoute-LLM is a typed, quality-aware language-model routing system. It combines small and large model backends, retrieval, confidence cascades, abstention, and durable human review with reproducible evaluation and a tenant-aware service boundary.
 
-> **Status: v0.6 research and deployment-validation implementation with one published real GPU study.** The MMLU-100 result below is narrow, hardware-specific evidence; it is not a universal model, routing, capacity, or production claim. Fake timings remain instrumentation-only.
+> **Status: v0.6 research and deployment-validation implementation with two published real GPU studies.** The latest MMLU-500/held-out result is a negative learned-routing result, not a universal model, routing, capacity, or production claim. Fake timings remain instrumentation-only.
 
 ## What it answers
 
@@ -48,7 +48,7 @@ Earlier milestones also provide revision-pinned public dataset adapters, content
 | Fake | Tests, CI, architecture demos | No | `configs/serving/fake.yaml` |
 | Distributed fake | Tenant/review/audit/replica workflow | No model network | `configs/serving/distributed.yaml` |
 | CPU smoke | Pinned public-data/model integration | Download, CPU | `configs/benchmarks/real-cpu-gsm8k-smoke.yaml` |
-| Local GPU | Published Qwen2.5 / MMLU-100 study | Download, CUDA | `configs/benchmarks/real-gpu-mmlu-100-live.yaml` |
+| Local GPU | Published Qwen2.5 / MMLU-100 and held-out MMLU-500 studies | Download, CUDA | `configs/benchmarks/real-gpu-mmlu-500-learned-live.yaml` |
 | Local servers | vLLM/llama.cpp/Ollama-compatible serving | Local endpoints | `configs/serving/local-openai-compatible.yaml` |
 
 Fake output, confidence, and artificial latency are marked `fake: true` and are never performance evidence.
@@ -84,16 +84,16 @@ The benchmark creates an ignored, unique `outputs/<UTC>_fake-smoke/` directory w
 
 ## Published real benchmark
 
-The first curated live result compares Qwen2.5-0.5B, Qwen2.5-1.5B, heuristic routing, and a raw-confidence cascade on 100 deterministic subject-stratified MMLU test questions using an RTX 3060 Laptop GPU. The clean live run completed 400/400 requests with zero failures.
+The latest study collected 500 paired Qwen2.5-0.5B/1.5B outcomes, trained and calibrated on disjoint 300/100 partitions, and evaluated once on 100 persisted untouched examples using an RTX 3060 Laptop GPU. The learned-router live matrix completed 400/400 requests with zero failures.
 
 | Policy | Accuracy (95% CI) | p50 | p95 |
 |---|---:|---:|---:|
-| Always small | 43% (33%-53%) | 372.0 ms | 452.5 ms |
-| Always large | 57% (47%-66%) | 461.4 ms | 536.9 ms |
-| Heuristic (78 small / 22 large) | 46% (36%-56%) | 390.3 ms | 490.1 ms |
-| Cascade (12 escalations) | 43% (33%-52%) | 385.8 ms | 586.4 ms |
+| Always small | 41% (31%-51%) | 353.9 ms | 429.3 ms |
+| Always large | 53% (43%-63%) | 423.3 ms | 528.6 ms |
+| Learned (8 small / 92 large) | 51% (41%-61%) | 445.9 ms | 503.0 ms |
+| Calibrated cascade (83 escalations) | 51% (41%-61%) | 689.7 ms | 895.9 ms |
 
-The heuristic was faster than always-large but 11 percentage points lower in observed accuracy; the cascade did not improve quality and worsened tail latency. These are useful negative results, not a quality-preserving routing claim. See the [technical benchmark card](reports/benchmarks/qwen25-mmlu-100-rtx3060.md) and [machine-readable evidence](reports/benchmarks/qwen25-mmlu-100-rtx3060.json) for exact revisions, hardware, hashes, protocol, uncertainty, and limitations.
+The learned router made no quality wins over always-large, lost two questions, routed only 8% to small, and had a 5.3% higher observed p50. The calibrated cascade produced the same two losses and much worse latency. This is a useful negative result: the current cheap prompt features and token-confidence signal are insufficient. See the [held-out technical card](reports/benchmarks/qwen25-mmlu-500-learned-rtx3060.md), [machine-readable evidence](reports/benchmarks/qwen25-mmlu-500-learned-rtx3060.json), and the earlier [MMLU-100 study](reports/benchmarks/qwen25-mmlu-100-rtx3060.md).
 
 ## Distributed service setup
 
