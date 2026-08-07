@@ -19,6 +19,7 @@ from budgetroute.evaluation.dataset import (
     dataset_summary,
     load_dataset,
     materialize_dataset,
+    materialize_router_test_split,
     validate_dataset_manifest,
 )
 from budgetroute.experiments.replay import verify_replay
@@ -238,6 +239,24 @@ def materialize_dataset_command(
     )
 
 
+@app.command("materialize-router-test-split")
+def materialize_router_test_split_command(
+    router_metadata: Path = typer.Option(..., "--router-metadata", exists=True, dir_okay=False),
+    dataset: Path = typer.Option(..., "--dataset", exists=True, dir_okay=False),
+    manifest: Path = typer.Option(..., "--manifest", exists=True, dir_okay=False),
+    output: Path = typer.Option(..., "--output", dir_okay=False),
+) -> None:
+    """Materialize the persisted untouched router test split with a derived manifest."""
+    details = materialize_router_test_split(router_metadata, dataset, manifest, output)
+    _print_json(
+        {
+            "dataset": str(output),
+            "manifest": str(output.with_suffix(".manifest.json")),
+            "details": details.model_dump(mode="json"),
+        }
+    )
+
+
 @app.command("build-index")
 def build_index(
     config: Path = typer.Option(..., "--config", exists=True, dir_okay=False),
@@ -324,10 +343,18 @@ def train_router(
     quality_threshold: float = typer.Option(0.8, min=0.0, max=1.0),
     seed: int = typer.Option(42),
     target_selective_accuracy: float = typer.Option(0.8, min=0.0, max=1.0),
+    label_strategy: Literal["small_success", "paired_quality"] = typer.Option(
+        "small_success", "--label-strategy"
+    ),
 ) -> None:
     """Train and persist a learned router from benchmark-derived labels."""
     result = train_router_artifact(
-        artifacts, output, quality_threshold, seed, target_selective_accuracy
+        artifacts,
+        output,
+        quality_threshold,
+        seed,
+        target_selective_accuracy,
+        label_strategy,
     )
     _print_json({"artifact": str(output), "training": result})
 

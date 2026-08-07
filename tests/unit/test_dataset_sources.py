@@ -10,6 +10,7 @@ from budgetroute.evaluation.dataset import (
     convert_dataset_row,
     dataset_hash,
     load_dataset_spec,
+    materialize_router_test_split,
     select_source_indices,
     validate_dataset_manifest,
 )
@@ -153,3 +154,54 @@ def test_stratified_selection_rejects_unsupported_dataset(project_root: Path) ->
             sampling="stratified",
             seed=42,
         )
+
+
+def test_materialize_router_test_split_preserves_persisted_id_order(tmp_path: Path) -> None:
+    dataset = tmp_path / "benchmark.jsonl"
+    rows = [
+        {
+            "id": record_id,
+            "category": "factual",
+            "prompt": f"Question {record_id}?",
+            "reference_answer": "A",
+            "evaluation_type": "classification",
+        }
+        for record_id in ("one", "two", "three")
+    ]
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    source_manifest = DatasetManifest(
+        name="fixture",
+        adapter="mmlu",
+        source="fixture/source",
+        config_name="all",
+        source_revision="a" * 40,
+        source_split="test",
+        license="MIT",
+        homepage="https://example.test",
+        prompt_version="v1",
+        record_count=3,
+        records_sha256=dataset_hash(dataset),
+        selection={"method": "head", "offset": 0, "limit": 3},
+        datasets_version="test",
+    )
+    source_manifest_path = tmp_path / "benchmark.manifest.json"
+    source_manifest_path.write_text(
+        source_manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+    router_metadata = tmp_path / "router.metadata.json"
+    router_metadata.write_text(
+        json.dumps({"seed": 42, "splits": {"test": {"ids": ["three", "one"]}}}),
+        encoding="utf-8",
+    )
+    output = tmp_path / "router-test.jsonl"
+
+    manifest = materialize_router_test_split(router_metadata, dataset, source_manifest_path, output)
+
+    assert [json.loads(line)["id"] for line in output.read_text().splitlines()] == [
+        "three",
+        "one",
+    ]
+    assert manifest.record_count == 2
+    assert manifest.selection["method"] == "router_test_split"
+    assert manifest.selection["parent_records_sha256"] == source_manifest.records_sha256
+    assert validate_dataset_manifest(output, output.with_suffix(".manifest.json")) == manifest

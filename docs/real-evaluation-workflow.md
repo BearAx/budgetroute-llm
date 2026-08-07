@@ -69,6 +69,19 @@ The artifact records every split ID/group, class counts, source hash, package ve
 
 The backend-confidence artifact can be attached with `routing.cascade_calibrator_path`. It transforms raw small-model token likelihood before cascade thresholding. Raw and calibrated values remain separate in predictions.
 
+For a cost-sensitive comparison with paired baselines, use `--label-strategy paired_quality`. After training, materialize exactly the persisted test IDs before the final live benchmark:
+
+```bash
+python -m budgetroute materialize-dataset --spec configs/datasets/mmlu.yaml --output data/materialized/mmlu-test-stratified-500.jsonl --limit 500 --sampling stratified --seed 42
+python -m budgetroute benchmark --config configs/benchmarks/real-gpu-mmlu-500-live.yaml
+python -m budgetroute train-router --artifacts outputs/BASELINE_RUN --output outputs/router/mmlu-500-paired.joblib --quality-threshold 1.0 --target-selective-accuracy 0.8 --label-strategy paired_quality --seed 42
+python -m budgetroute calibrate-confidence --artifacts outputs/BASELINE_RUN --output outputs/router/mmlu-500-small-confidence.json --policy always_small --quality-threshold 1.0 --target-selective-accuracy 0.8 --seed 42
+python -m budgetroute materialize-router-test-split --router-metadata outputs/router/mmlu-500-paired.joblib.metadata.json --dataset data/materialized/mmlu-test-stratified-500.jsonl --manifest data/materialized/mmlu-test-stratified-500.manifest.json --output data/materialized/mmlu-test-stratified-500-router-test.jsonl
+python -m budgetroute benchmark --config configs/benchmarks/real-gpu-mmlu-500-learned-live.yaml
+```
+
+The 60/20/20 group split is selected once from the baseline artifact. Model fitting uses train only, probability calibration and the serving threshold use calibration only, and the final live profile contains test IDs only. Treat any later tuning informed by test results as a new development cycle requiring a new untouched test set.
+
 ## Interpretation
 
 Length-normalized token likelihood and entropy are genuine model measurements, but neither is automatically a correctness probability. Calibration is task/model/prompt specific. Cache replay supports policy comparisons over fixed model outcomes; it does not reproduce queueing, concurrent contention, thermal drift, or live batching behavior. Confirm final systems conclusions with live runs.

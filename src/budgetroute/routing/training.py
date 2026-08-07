@@ -7,7 +7,7 @@ import importlib.metadata
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -29,6 +29,11 @@ class TrainingRows:
     labels: list[int]
     ids: list[str]
     groups: list[str]
+    small_quality: list[float]
+    large_quality: list[float | None]
+
+
+LabelStrategy = Literal["small_success", "paired_quality"]
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -37,16 +42,32 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def build_training_rows(artifact_dir: Path, quality_threshold: float) -> TrainingRows:
+def build_training_rows(
+    artifact_dir: Path,
+    quality_threshold: float,
+    label_strategy: LabelStrategy = "small_success",
+) -> TrainingRows:
+    if label_strategy not in ("small_success", "paired_quality"):
+        raise RouterTrainingError(f"unsupported router label strategy: {label_strategy}")
     predictions = _read_jsonl(artifact_dir / "predictions.jsonl")
     routes = _read_jsonl(artifact_dir / "routes.jsonl")
     route_lookup = {(str(item["example_id"]), str(item.get("policy", ""))): item for item in routes}
     preferred = [item for item in predictions if item.get("policy") == "always_small"]
+    if label_strategy == "paired_quality" and not preferred:
+        raise RouterTrainingError("paired-quality training requires always_small predictions")
     selected = preferred or predictions
+    large_lookup = {
+        str(item["example_id"]): item
+        for item in predictions
+        if item.get("policy") == "always_large" and item.get("error") is None
+    }
     features: list[dict[str, float]] = []
     labels: list[int] = []
     ids: list[str] = []
     groups: list[str] = []
+    small_quality: list[float] = []
+    large_quality: list[float | None] = []
+    missing_pairs: list[str] = []
     for item in selected:
         if item.get("error"):
             continue
@@ -58,13 +79,77 @@ def build_training_rows(artifact_dir: Path, quality_threshold: float) -> Trainin
             for key, value in route["features"].items()
             if isinstance(value, (bool, int, float))
         }
+        example_id = str(item["example_id"])
+        small_score = float(item["quality_score"])
+        large_item = large_lookup.get(example_id)
+        large_score = float(large_item["quality_score"]) if large_item is not None else None
+        if label_strategy == "paired_quality" and large_score is None:
+            missing_pairs.append(example_id)
+            continue
         features.append(numeric)
-        labels.append(int(float(item["quality_score"]) >= quality_threshold))
-        ids.append(str(item["example_id"]))
+        if label_strategy == "small_success":
+            label = int(small_score >= quality_threshold)
+        else:
+            assert large_score is not None
+            label = int(small_score >= large_score)
+        labels.append(label)
+        ids.append(example_id)
         groups.append(str(item.get("group_id") or route.get("group_id") or item["example_id"]))
+        small_quality.append(small_score)
+        large_quality.append(large_score)
+    if missing_pairs:
+        raise RouterTrainingError(
+            "paired-quality training requires successful always_large predictions for every "
+            f"always_small row; missing {len(missing_pairs)} pairs"
+        )
     if not features:
         raise RouterTrainingError("no joined prediction/feature rows were available for training")
-    return TrainingRows(features, labels, ids, groups)
+    return TrainingRows(features, labels, ids, groups, small_quality, large_quality)
+
+
+def _label_definition(label_strategy: LabelStrategy, quality_threshold: float) -> str:
+    if label_strategy == "paired_quality":
+        return "small_model_quality >= large_model_quality on paired outcomes"
+    return f"small_model_quality >= {quality_threshold}"
+
+
+def _routing_outcome_metrics(
+    rows: TrainingRows,
+    indices: np.ndarray,
+    route_small: list[int],
+    quality_threshold: float,
+) -> dict[str, Any] | None:
+    if len(indices) != len(route_small):
+        raise RouterTrainingError("route decisions do not match the selected outcome rows")
+    large_scores = [rows.large_quality[int(index)] for index in indices]
+    if any(value is None for value in large_scores):
+        return None
+    small_scores = [rows.small_quality[int(index)] for index in indices]
+    paired_large = [float(value) for value in large_scores if value is not None]
+    routed_scores = [
+        small if use_small else large
+        for small, large, use_small in zip(small_scores, paired_large, route_small, strict=True)
+    ]
+    oracle_scores = [
+        max(small, large) for small, large in zip(small_scores, paired_large, strict=True)
+    ]
+
+    def mean(values: list[float]) -> float:
+        return float(sum(values) / len(values))
+
+    return {
+        "sample_count": len(routed_scores),
+        "small_route_count": sum(route_small),
+        "large_route_count": len(route_small) - sum(route_small),
+        "small_route_share": sum(route_small) / len(route_small),
+        "routed_mean_quality": mean(routed_scores),
+        "routed_success_rate": mean([float(value >= quality_threshold) for value in routed_scores]),
+        "always_small_mean_quality": mean(small_scores),
+        "always_large_mean_quality": mean(paired_large),
+        "oracle_mean_quality": mean(oracle_scores),
+        "quality_delta_vs_always_large": mean(routed_scores) - mean(paired_large),
+        "quality_regret_vs_oracle": mean(oracle_scores) - mean(routed_scores),
+    }
 
 
 def _classification_metrics(
@@ -167,6 +252,7 @@ def train_router(
     quality_threshold: float = 0.8,
     seed: int = 42,
     target_selective_accuracy: float = 0.8,
+    label_strategy: LabelStrategy = "small_success",
 ) -> dict[str, Any]:
     try:
         import joblib
@@ -179,7 +265,7 @@ def train_router(
             "router training requires scikit-learn and joblib; install the learned extra"
         ) from exc
 
-    rows = build_training_rows(artifact_dir, quality_threshold)
+    rows = build_training_rows(artifact_dir, quality_threshold, label_strategy)
     feature_order = sorted({name for item in rows.features for name in item})
     matrix = np.asarray(
         [[item.get(name, 0.0) for name in feature_order] for item in rows.features], dtype=float
@@ -217,6 +303,9 @@ def train_router(
     metrics["raw_expected_calibration_error"] = expected_calibration_error(
         raw_test_probabilities, test_labels
     )
+    outcome_metrics = _routing_outcome_metrics(
+        rows, test_indices, test_predictions, quality_threshold
+    )
 
     source_hash = hashlib.sha256(
         (artifact_dir / "predictions.jsonl").read_bytes()
@@ -238,8 +327,9 @@ def train_router(
     if warning is None and not disjoint:
         raise RouterTrainingError("group leakage was detected across router partitions")
     metadata = {
-        "schema_version": 2,
-        "label_definition": f"small_model_quality >= {quality_threshold}",
+        "schema_version": 3,
+        "label_strategy": label_strategy,
+        "label_definition": _label_definition(label_strategy, quality_threshold),
         "quality_threshold": quality_threshold,
         "target_selective_accuracy": target_selective_accuracy,
         "serving_threshold": serving_threshold,
@@ -254,6 +344,7 @@ def train_router(
         "calibration_ids": splits["calibration"]["ids"],
         "test_ids": splits["test"]["ids"],
         "metrics": metrics,
+        "outcome_metrics": outcome_metrics,
         "warning": warning or calibrator.warning,
         "package_versions": {
             name: importlib.metadata.version(name) for name in ("numpy", "scikit-learn", "joblib")
@@ -263,7 +354,7 @@ def train_router(
     temporary = output_path.with_suffix(output_path.suffix + ".tmp")
     joblib.dump(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "model": model,
             "calibrator": calibrator,
             "serving_threshold": serving_threshold,
@@ -291,11 +382,13 @@ def evaluate_router(
     except ImportError as exc:
         raise RouterTrainingError("router evaluation requires joblib") from exc
     artifact = joblib.load(artifact_path)
-    rows = build_training_rows(artifact_dir, threshold)
+    training_metadata = artifact.get("training_metadata", {})
+    label_strategy: LabelStrategy = training_metadata.get("label_strategy", "small_success")
+    quality_threshold = float(training_metadata.get("quality_threshold", threshold))
+    rows = build_training_rows(artifact_dir, quality_threshold, label_strategy)
     order = [str(item) for item in artifact["feature_order"]]
     matrix = np.asarray([[item.get(name, 0.0) for name in order] for item in rows.features])
     selected = np.arange(len(rows.ids))
-    training_metadata = artifact.get("training_metadata", {})
     if test_only and training_metadata.get("test_ids"):
         test_ids = set(str(item) for item in training_metadata["test_ids"])
         selected = np.asarray([index for index, item in enumerate(rows.ids) if item in test_ids])
@@ -315,6 +408,10 @@ def evaluate_router(
             "serving_threshold": serving_threshold,
             "raw_brier_score": brier_score(raw_probabilities, labels),
             "raw_expected_calibration_error": expected_calibration_error(raw_probabilities, labels),
+            "label_strategy": label_strategy,
+            "outcome_metrics": _routing_outcome_metrics(
+                rows, selected, predictions, quality_threshold
+            ),
         }
     )
     return result

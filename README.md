@@ -178,12 +178,14 @@ validate-config        resolve and validate composed YAML
 security-check         audit deployment-sensitive settings without printing secrets
 inspect-data           validate benchmark data and manifests
 materialize-dataset    download a pinned public split and hash it
+materialize-router-test-split
+                       export persisted router test IDs with a derived manifest
 build-index            build the configured exact/FAISS/HNSW index
 benchmark              execute policies and persist experiment artifacts
 collect-baselines      collect content-addressed model outcomes
 replay-benchmark       compare policies without loading model weights
 verify-replay          compare live and cached semantic responses
-train-router           train calibrated small-model-success routing
+train-router           train calibrated small-success or paired-quality routing
 evaluate-router        evaluate a saved router on artifacts
 calibrate-confidence   fit an offline backend-confidence calibrator
 train-retrieval-router train paired retrieval-benefit routing

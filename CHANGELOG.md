@@ -7,6 +7,7 @@ All notable changes follow Keep a Changelog conventions. The project uses semant
 ### Added
 
 - Deterministic subject-stratified MMLU materialization, a cache-isolated warmup marker, pinned live/replay RTX 3060 benchmark profiles, and a curated Qwen2.5/MMLU-100 result card with machine-readable evidence.
+- Paired-quality learned-router labels, held-out end-to-end routing outcome metrics, deterministic persisted-test export with a derived integrity manifest, and MMLU-500 development/held-out benchmark profiles.
 
 ### Fixed
 
