@@ -8,4 +8,4 @@ Allow authentication-free development only on loopback. Require API-key authenti
 
 Accidental public exposure and plaintext remote model traffic fail validation. Configuration/artifacts never contain secret values. These controls are appropriate to a single research-service process, not a substitute for TLS termination, user authorization, tenant isolation, shared quotas, policy enforcement, or a secret manager.
 
-ADR 0006 later extends this boundary with scoped tenant credentials, an explicit TLS declaration, same-host shared quotas/admission, durable workflows, and audit records. External identity, edge/network protection, secret management, and multi-host coordination remain deployment responsibilities.
+ADR 0006 later extends this boundary with scoped tenant credentials, an explicit TLS declaration, same-host shared quotas/admission, durable workflows, and audit records; ADR 0008 adds a PostgreSQL multi-host implementation. External identity, edge/network protection, secret management, database HA, and multi-region topology remain deployment responsibilities.

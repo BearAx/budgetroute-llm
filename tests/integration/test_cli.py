@@ -22,7 +22,7 @@ def test_cli_validation_inspection_doctor_and_demo(project_root: Path) -> None:
 
     doctor = runner.invoke(app, ["doctor", "--config", str(config)])
     assert doctor.exit_code == 0, doctor.output
-    assert '"budgetroute_version": "0.6.0"' in doctor.output
+    assert '"budgetroute_version": "0.7.0"' in doctor.output
 
     security = runner.invoke(app, ["security-check", "--config", str(config)])
     assert security.exit_code == 0, security.output
@@ -36,3 +36,7 @@ def test_cli_validation_inspection_doctor_and_demo(project_root: Path) -> None:
     unsafe_bind = runner.invoke(app, ["serve", "--config", str(config), "--host", "0.0.0.0"])
     assert unsafe_bind.exit_code != 0
     assert "non-loopback API binding requires" in str(unsafe_bind.exception)
+
+    migration = runner.invoke(app, ["migrate-store", "--config", str(config)])
+    assert migration.exit_code != 0
+    assert "requires operations.backend=postgres" in migration.output

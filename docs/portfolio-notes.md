@@ -2,11 +2,11 @@
 
 ## Short description
 
-BudgetRoute-LLM is a typed Python LLM routing and evaluation system that combines dynamic batching, retrieval, cascade escalation, tenant-aware serving, durable review/feedback, and gated confidence adaptation while measuring quality, cost, and systems trade-offs.
+BudgetRoute-LLM is a typed Python LLM routing and evaluation system that combines dynamic batching, retrieval, cascade escalation, multi-host tenant-aware serving, durable review/feedback, and gated confidence adaptation while measuring quality, cost, and systems trade-offs.
 
 ## Extended description
 
-The project separates model backends, scheduling/load telemetry, routing, retrieval, evaluation, operations, adaptation, artifacts, and reporting behind testable interfaces. An offline deterministic mode exercises the same CLI, FastAPI, bounded batching, tenant scopes, SQLite coordination, review/audit, learned policies, and reports as optional Hugging Face CPU/CUDA or local OpenAI-compatible execution. Reproducibility metadata and explicit fake labeling prevent unmeasured portfolio claims.
+The project separates model backends, scheduling/load telemetry, routing, retrieval, evaluation, operations, adaptation, artifacts, and reporting behind testable interfaces. An offline deterministic mode exercises the same CLI, FastAPI, bounded batching, tenant scopes, review/audit, learned policies, and reports as optional Hugging Face CPU/CUDA or local OpenAI-compatible execution. SQLite covers zero-infrastructure same-host coordination; a pooled, migration-managed PostgreSQL adapter covers independent hosts and is tested against a real database service in CI. Reproducibility metadata and explicit fake labeling prevent unmeasured portfolio claims.
 
 ## Resume bullets
 
@@ -17,7 +17,7 @@ The project separates model backends, scheduling/load telemetry, routing, retrie
 - Implemented optional CPU/CUDA Transformers execution and portable cosine retrieval, reducing **[measured compute or latency]** by **[real measured percentage]** at a **[real configured quality target]**.
 - Built a bounded deadline-aware scheduler with ordered cascade batching, load/cost-aware policies, Prometheus metrics, drift alerts, and secure overload handling; sustained **[measured throughput]** at **[measured p95]** on **[hardware/runtime]**.
 - Added a safe OpenAI-compatible local-runtime boundary and GitHub security automation (CodeQL, dependency review, Dependabot, `pip-audit`), with **[measured security/operations evidence]** from the published workflow artifacts.
-- Implemented transactional same-host replica coordination, scoped tenant access, durable review/feedback, tamper-evident audit verification, and gated delayed-label recalibration; validated **[real deployment topology and evidence]**.
+- Implemented a PostgreSQL multi-host control plane with atomic quotas/leases, idempotent review/feedback, serialized audit chains, checksum-verified migrations, TLS/readiness checks, least-privilege deployment modes, and concurrent real-database CI; validated **[target-fleet load/failover evidence]** before claiming scale or availability.
 - Trained a separate retrieval-benefit policy and added revision-pinned semantic HNSW retrieval; measured **[recall/quality delta/latency]** on **[named corpus and embedding revision]**.
 
 Use the first bullet as the current evidence-backed version. Replace the remaining brackets only with traceable real artifacts; never use fake benchmark values or imply that the heuristic preserved always-large quality in this study.
@@ -41,7 +41,8 @@ Use the first bullet as the current evidence-backed version. Replace the remaini
 - Why deterministic metrics precede an optional LLM judge.
 - Why queue bounds/deadlines matter more than average throughput under overload.
 - Why load-aware routing is intentionally schedule-dependent and must record trusted load snapshots.
-- Why local batching and global admission leases are distinct, and where SQLite stops scaling.
+- Why local batching and global admission leases are distinct, where SQLite stops scaling, and why PostgreSQL advisory locks protect only short global decisions rather than model execution.
+- How migration/runtime role separation, expand/contract schemas, pool budgets, readiness, and restore drills shape a safe multi-replica rollout.
 - Why hash chaining is tamper-evident but not an externally notarized audit log.
 - Why calibration promotion uses chronological evidence and never mutates the live model in the request path.
 - Why literal content rules do not solve prompt injection or semantic model safety.

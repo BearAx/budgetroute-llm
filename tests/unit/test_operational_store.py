@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from budgetroute.operations.models import (
     PredictionObservation,
     ReviewOutcome,
@@ -33,6 +35,7 @@ def test_sqlite_store_coordinates_quota_and_leases_across_instances(tmp_path: Pa
         assert second.acquire_lease("tenant-b", "replica-2", 1, 30.0, now=51.0) is None
         first.release_lease(lease.lease_id)
         assert second.acquire_lease("tenant-b", "replica-2", 1, 30.0, now=22.0)
+        assert first.health() == {"backend": "sqlite", "ready": True}
     finally:
         first.close()
         second.close()
@@ -64,6 +67,56 @@ def test_store_joins_idempotent_delayed_feedback_and_predictions() -> None:
         assert "notes" not in store.list_audit_events()[0].details
     finally:
         store.close()
+
+
+def test_postgres_store_requires_environment_without_exposing_a_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from budgetroute.exceptions import ConfigurationError
+    from budgetroute.operations.postgres_store import PostgreSQLOperationalStore
+
+    monkeypatch.delenv("BUDGETROUTE_TEST_POSTGRES_DSN", raising=False)
+    store = PostgreSQLOperationalStore(dsn_env="BUDGETROUTE_TEST_POSTGRES_DSN", require_tls=False)
+
+    with pytest.raises(ConfigurationError, match="BUDGETROUTE_TEST_POSTGRES_DSN"):
+        store.initialize()
+    assert store.health() == {"backend": "postgres", "ready": False}
+
+
+def test_postgres_store_rejects_unencrypted_dsn_without_echoing_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from budgetroute.exceptions import ConfigurationError
+    from budgetroute.operations.postgres_store import PostgreSQLOperationalStore
+
+    dsn = "postgresql://user:never-print-this@localhost/database?sslmode=disable"
+    monkeypatch.setenv("BUDGETROUTE_TEST_POSTGRES_DSN", dsn)
+    store = PostgreSQLOperationalStore(dsn_env="BUDGETROUTE_TEST_POSTGRES_DSN")
+
+    with pytest.raises(ConfigurationError, match="sslmode=require") as captured:
+        store.initialize()
+    assert "never-print-this" not in str(captured.value)
+
+
+def test_postgres_store_suppresses_secret_bearing_parser_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from budgetroute.exceptions import ConfigurationError
+    from budgetroute.operations.postgres_store import PostgreSQLOperationalStore
+
+    secret = "never-print-this-either"
+    monkeypatch.setenv(
+        "BUDGETROUTE_TEST_POSTGRES_DSN",
+        f"postgresql://user:{secret}@[invalid/database?sslmode=require",
+    )
+    store = PostgreSQLOperationalStore(dsn_env="BUDGETROUTE_TEST_POSTGRES_DSN")
+
+    with pytest.raises(
+        ConfigurationError, match="secret-bearing parser details were suppressed"
+    ) as captured:
+        store.initialize()
+    assert secret not in str(captured.value)
+    assert captured.value.__cause__ is None
 
 
 def test_review_case_lifecycle_is_versioned_and_audited(tmp_path: Path) -> None:

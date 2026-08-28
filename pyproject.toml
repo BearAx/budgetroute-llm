@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "budgetroute-llm"
-version = "0.6.0"
+version = "0.7.0"
 description = "Quality-aware, tenant-aware routing for reproducible language-model inference"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -30,9 +30,10 @@ dependencies = [
 
 [project.optional-dependencies]
 api = ["fastapi>=0.115", "httpx>=0.27", "uvicorn>=0.30"]
+postgres = ["psycopg[binary,pool]>=3.2,<4"]
 transformers = ["torch>=2.3", "tokenizers>=0.19", "transformers>=4.43"]
 retrieval = ["faiss-cpu>=1.8; platform_system != 'Windows'"]
-datasets = ["datasets>=3.0,<5"]
+datasets = ["datasets>=5.0.1,<6"]
 learned = ["joblib>=1.4", "scikit-learn>=1.5"]
 reporting = ["jinja2>=3.1", "matplotlib>=3.9", "pandas>=2.2"]
 gpu = [
@@ -52,6 +53,7 @@ dev = [
   "matplotlib>=3.9",
   "mypy>=1.11",
   "pandas>=2.2",
+  "psycopg[binary,pool]>=3.2,<4",
   "pytest>=8.3",
   "pytest-cov>=5.0",
   "ruff>=0.6",
@@ -62,7 +64,7 @@ dev = [
 ]
 all = [
   "accelerate>=0.33",
-  "datasets>=3.0,<5",
+  "datasets>=5.0.1,<6",
   "faiss-cpu>=1.8; platform_system != 'Windows'",
   "fastapi>=0.115",
   "httpx>=0.27",
@@ -70,6 +72,7 @@ all = [
   "jinja2>=3.1",
   "matplotlib>=3.9",
   "pandas>=2.2",
+  "psycopg[binary,pool]>=3.2,<4",
   "scikit-learn>=1.5",
   "torch>=2.3",
   "tokenizers>=0.19",
@@ -115,6 +118,8 @@ module = [
   "joblib.*",
   "matplotlib.*",
   "pandas.*",
+  "psycopg.*",
+  "psycopg_pool.*",
   "sklearn.*",
   "torch.*",
   "transformers.*",
@@ -127,6 +132,7 @@ testpaths = ["tests"]
 markers = [
   "integration: end-to-end tests using offline fake components",
   "performance: deterministic timing and batching tests",
+  "postgres: tests requiring BUDGETROUTE_TEST_POSTGRES_DSN",
   "real_model: optional tests that may download a model",
 ]
 

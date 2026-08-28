@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install format format-check lint typecheck test test-unit test-integration coverage check doctor security fake-demo fake-benchmark report serve-fake build clean
+.PHONY: install format format-check lint typecheck test test-unit test-integration test-postgres coverage check doctor security fake-demo fake-benchmark report serve-fake build clean
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -26,6 +26,9 @@ test-unit:
 
 test-integration:
 	$(PYTHON) -m pytest tests/integration
+
+test-postgres:
+	$(PYTHON) -m pytest tests/integration/test_postgres_operational_store.py
 
 coverage:
 	$(PYTHON) -m pytest --cov=budgetroute --cov-report=term-missing --cov-report=xml --cov-fail-under=75

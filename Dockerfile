@@ -9,7 +9,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN python -m pip install --no-cache-dir ".[api,learned,reporting]"
+RUN python -m pip install --no-cache-dir ".[api,learned,postgres,reporting]"
 
 COPY configs ./configs
 COPY data ./data

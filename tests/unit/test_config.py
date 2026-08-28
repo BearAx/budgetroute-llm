@@ -9,6 +9,7 @@ from budgetroute.config import (
     AppConfig,
     BackendConfig,
     BenchmarkConfig,
+    OperationsConfig,
     RoutingConfig,
     load_config,
     validate_runtime_config,
@@ -97,3 +98,43 @@ def test_non_loopback_api_requires_an_explicit_tls_boundary(fake_config: AppConf
         }
     )
     assert valid.api.external_tls_termination is True
+
+
+def test_postgres_operations_configuration_is_secret_safe() -> None:
+    operations = OperationsConfig(
+        backend="postgres",
+        postgres_dsn_env="BUDGETROUTE_TEST_POSTGRES_DSN",
+        postgres_pool_min_size=2,
+        postgres_pool_max_size=8,
+    )
+    config = AppConfig(operations=operations)
+
+    summary = config.sanitized_summary()["operations"]
+    assert summary["backend"] == "postgres"
+    assert summary["durable"] is True
+    assert summary["multi_host"] is True
+    assert "dsn" not in str(summary).lower()
+
+
+def test_postgres_operations_configuration_rejects_invalid_pool_and_environment() -> None:
+    with pytest.raises(ValidationError, match="pool_min_size cannot exceed"):
+        OperationsConfig(postgres_pool_min_size=9, postgres_pool_max_size=8)
+    with pytest.raises(ValidationError, match="postgres_dsn_env"):
+        OperationsConfig(postgres_dsn_env="not-an-env-name")
+
+
+def test_runtime_validation_rejects_missing_postgres_dsn(
+    fake_config: AppConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("BUDGETROUTE_TEST_POSTGRES_DSN", raising=False)
+    config = fake_config.model_copy(
+        update={
+            "operations": OperationsConfig(
+                backend="postgres",
+                postgres_dsn_env="BUDGETROUTE_TEST_POSTGRES_DSN",
+            )
+        }
+    )
+
+    with pytest.raises(ConfigurationError, match="named DSN environment variable is unset"):
+        validate_runtime_config(config)

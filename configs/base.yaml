@@ -27,6 +27,12 @@ api:
 operations:
   backend: memory
   database_path: data/state/budgetroute.db
+  postgres_dsn_env: BUDGETROUTE_POSTGRES_DSN
+  postgres_pool_min_size: 1
+  postgres_pool_max_size: 16
+  postgres_connect_timeout_seconds: 10
+  postgres_require_tls: true
+  postgres_auto_migrate: true
   replica_id_env: BUDGETROUTE_REPLICA_ID
   max_global_inflight: 64
   lease_ttl_seconds: 180

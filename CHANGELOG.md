@@ -4,14 +4,24 @@ All notable changes follow Keep a Changelog conventions. The project uses semant
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-28
+
 ### Added
 
+- A pooled PostgreSQL operational store for multi-host quotas, admission leases, metrics, predictions, delayed labels, review workflows, and serialized hash-chain audit writes.
+- Ordered checksum-verified PostgreSQL migrations, database-clock lease/quota decisions, startup TLS validation, and database-aware readiness responses.
+- Secret-suppressed PostgreSQL DSN/startup failures and an installed-wheel CI assertion for packaged migration resources.
+- Hugging Face Datasets 5.0.1+ to exclude vulnerable archive-extraction and path-traversal releases from optional evaluation installs.
+- PostgreSQL parity and high-contention integration tests backed by a real PostgreSQL 17 GitHub Actions service.
+- Production and local PostgreSQL profiles, a two-service Compose topology, and a security-hardened three-replica Kubernetes reference with Service, PDB, HPA, probes, and ingress policy.
+- An operations runbook covering least privilege, TLS, migrations, pool budgets, backup/PITR, rollout, rollback, monitoring, and failure drills.
 - Deterministic subject-stratified MMLU materialization, a cache-isolated warmup marker, pinned live/replay RTX 3060 benchmark profiles, and a curated Qwen2.5/MMLU-100 result card with machine-readable evidence.
 - Paired-quality learned-router labels, held-out end-to-end routing outcome metrics, deterministic persisted-test export with a derived integrity manifest, and MMLU-500 development/held-out benchmark profiles.
 - A curated clean-commit Qwen2.5/MMLU-500 study with 500 paired baselines, disjoint 300/100/100 router partitions, an untouched 100-record live comparison, replay verification, and an explicitly negative learned-routing conclusion.
 
 ### Fixed
 
+- Shared tenant quota enforcement and delayed-label adaptation now treat PostgreSQL as a durable backend instead of falling back to process-local behavior.
 - Transformers cleanup now releases runtime references and forces cyclic collection between repeated replay-policy model loads, preventing the observed Windows `torch_cpu.dll` verifier crash.
 
 ## [0.6.0] - 2026-08-07

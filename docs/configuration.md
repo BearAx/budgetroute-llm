@@ -9,7 +9,7 @@ Runtime behavior is defined by strict Pydantic models loaded from YAML. `extends
 - `routing`: policy, difficulty/cascade/retrieval thresholds, learned artifacts, load/cost weights, and review behavior.
 - `batching`: local queue size, maximum batch, first-item wait, admission timeout, and end-to-end deadline.
 - `api`: bind address, trusted hosts, request limits, authentication sources, review/feedback switches, and built-in or external TLS boundary.
-- `operations`: memory/SQLite backend, database path, replica ID source, shared quota, global inflight leases, and audit retention.
+- `operations`: memory/SQLite/PostgreSQL backend, SQLite path, environment-named PostgreSQL DSN, TLS/migration/pool controls, replica ID source, shared quota, global inflight leases, and audit retention.
 - `adaptation`: delayed-label registry, minimum sample count, chronological holdout, Brier/ECE gates, selective target, and Page-Hinkley settings.
 - `content_policy`: optional literal input/output rules plus always-enforced metadata byte/depth/key bounds.
 - `monitoring`: bounded window, baseline size/file, and drift threshold.
@@ -56,6 +56,7 @@ BUDGETROUTE_PORT
 BUDGETROUTE_LOG_LEVEL
 BUDGETROUTE_API_KEY
 BUDGETROUTE_TENANT_KEYS_JSON
+BUDGETROUTE_POSTGRES_DSN
 BUDGETROUTE_REPLICA_ID
 ```
 
@@ -66,6 +67,9 @@ The first four are direct overrides. The remaining variables are read only when 
 - `configs/serving/fake.yaml`: local no-network development.
 - `configs/serving/secure.yaml`: authenticated service behind explicit external TLS termination.
 - `configs/serving/distributed.yaml`: tenant scopes, SQLite coordination, durable feedback/review/audit, adaptation registry, and content rules.
+- `configs/serving/postgres.yaml`: TLS-required multi-host PostgreSQL coordination with runtime schema verification.
+- `configs/serving/postgres-local.yaml`: explicitly unencrypted loopback-only Compose development override.
+- `configs/serving/postgres-adaptation.yaml`: operator-side delayed-label adaptation over PostgreSQL observations.
 - `configs/retrieval/semantic-hnsw.yaml`: revision-pinned semantic embedding and HNSW fragment; compose it into a serving/benchmark profile.
 - `configs/routing/learned-retrieval.yaml`: learned retrieval-benefit fragment; set its trained artifact path.
 - `configs/benchmarks/real-gpu-mmlu-500-live.yaml`: paired small/large outcome collection for router development.
@@ -75,3 +79,5 @@ The first four are direct overrides. The remaining variables are read only when 
 Leaving `routing.retrieval_benefit_threshold` unset uses the calibration-selected value stored in the artifact; set it only as an explicit reviewed override.
 
 Run both `validate-config` and `security-check` against the exact deployment config and environment before serving.
+
+PostgreSQL DSNs are read only from `operations.postgres_dsn_env` and never appear in sanitized config. Production defaults require `sslmode=require`, `verify-ca`, or `verify-full`; prefer `verify-full`. Pool limits are per process, so total possible connections grow with replica count. Set `postgres_auto_migrate: false` for production, run `budgetroute migrate-store` with a DDL-capable credential, and give serving replicas a narrower runtime credential. See the [PostgreSQL operations runbook](postgres-operations.md).

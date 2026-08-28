@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: budgetroute
+  namespace: budgetroute
+  labels:
+    app.kubernetes.io/name: budgetroute
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: budgetroute
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: budgetroute
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/bearax/budgetroute-llm:REPLACE_WITH_IMMUTABLE_TAG
+          imagePullPolicy: IfNotPresent
+          args: ["python", "-m", "budgetroute", "serve", "--config", "configs/serving/postgres.yaml"]
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: BUDGETROUTE_REPLICA_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: BUDGETROUTE_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: budgetroute-secrets
+                  key: postgres-dsn
+            - name: BUDGETROUTE_TENANT_KEYS_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: budgetroute-secrets
+                  key: tenant-keys-json
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: runtime
+              mountPath: /app/outputs
+            - name: state
+              mountPath: /app/data/state
+      volumes:
+        - name: runtime
+          emptyDir: {}
+        - name: state
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: budgetroute
+  namespace: budgetroute
+spec:
+  selector:
+    app.kubernetes.io/name: budgetroute
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: budgetroute
+  namespace: budgetroute
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: budgetroute
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: budgetroute
+  namespace: budgetroute
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: budgetroute
+  minReplicas: 3
+  maxReplicas: 20
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: budgetroute-ingress
+  namespace: budgetroute
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: budgetroute
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: budgetroute
+      ports:
+        - protocol: TCP
+          port: 8000

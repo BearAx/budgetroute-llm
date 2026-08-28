@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse
 
 from budgetroute.api.dependencies import (
@@ -32,10 +32,22 @@ def healthz() -> dict[str, str]:
 
 
 @router.get("/readyz", summary="Dependency readiness")
-def readyz(service: ServiceDependency) -> dict[str, object]:
-    state = service.health()
-    ready = bool(state["ready"])
-    return {"status": "ready" if ready else "not_ready", "ready": ready}
+def readyz(
+    response: Response, service: ServiceDependency, store: StoreDependency
+) -> dict[str, object]:
+    inference = service.health()
+    operations = store.health()
+    ready = bool(inference["ready"]) and bool(operations["ready"])
+    if not ready:
+        response.status_code = 503
+    return {
+        "status": "ready" if ready else "not_ready",
+        "ready": ready,
+        "components": {
+            "inference": {"ready": bool(inference["ready"])},
+            "operations": operations,
+        },
+    }
 
 
 @router.get("/v1/config", summary="Sanitized active configuration")

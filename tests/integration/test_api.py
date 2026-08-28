@@ -16,6 +16,7 @@ def test_api_health_readiness_route_and_generate(fake_config: AppConfig) -> None
         readiness = client.get("/readyz")
         assert readiness.status_code == 200
         assert readiness.json()["ready"] is True
+        assert readiness.json()["components"]["operations"]["backend"] == "memory"
         route = client.post("/v1/route", json={"prompt": "What is the capital of France?"})
         assert route.status_code == 200
         assert route.json()["route"] == "small"
@@ -39,6 +40,21 @@ def test_api_health_readiness_route_and_generate(fake_config: AppConfig) -> None
         )
         assert invalid.status_code == 422
         assert secret_value not in invalid.text
+
+
+def test_readiness_fails_closed_when_operational_store_is_unavailable(
+    fake_config: AppConfig,
+) -> None:
+    with TestClient(create_app(fake_config)) as client:
+        client.app.state.operational_store.close()
+        readiness = client.get("/readyz")
+
+        assert readiness.status_code == 503
+        assert readiness.json()["ready"] is False
+        assert readiness.json()["components"]["operations"] == {
+            "backend": "memory",
+            "ready": False,
+        }
 
 
 def test_api_authentication_rate_limit_feedback_and_body_limit(

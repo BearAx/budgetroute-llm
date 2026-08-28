@@ -152,7 +152,7 @@ def create_app(
             )
         remaining: int | None = None
         if protected:
-            if active_config.operations.backend == "sqlite":
+            if active_config.operations.backend in {"sqlite", "postgres"}:
                 quota = await asyncio.to_thread(
                     operational_store.check_quota,
                     principal.tenant_id,
