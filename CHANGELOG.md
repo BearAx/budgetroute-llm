@@ -4,6 +4,10 @@ All notable changes follow Keep a Changelog conventions. The project uses semant
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub checkout, Python setup, and artifact upload workflows now use current Node 24-based major releases, removing deprecated Node 20 action execution.
+
 ## [0.7.0] - 2026-08-28
 
 ### Added
