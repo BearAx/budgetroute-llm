@@ -1,0 +1,9 @@
+extends:
+  - postgres.yaml
+api:
+  trusted_hosts: [localhost, 127.0.0.1]
+operations:
+  postgres_pool_min_size: 1
+  postgres_pool_max_size: 4
+  postgres_require_tls: false
+  postgres_auto_migrate: true

@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: "Medvedev"
     given-names: "Aleksandr"
-version: 0.6.0
-date-released: 2026-08-07
+version: 0.7.0
+date-released: 2026-08-28
 license: MIT
 abstract: "A quality-aware, tenant-aware language-model routing, adaptation, and evaluation system."

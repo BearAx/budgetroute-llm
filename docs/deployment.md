@@ -28,11 +28,32 @@ python -m budgetroute serve --config configs/serving/distributed.yaml
 
 Health/readiness remain unauthenticated for orchestrator probes. Protected endpoints accept `Authorization: Bearer` or `X-API-Key`; prefer Bearer. The scoped tenant principal, not the client IP, controls shared quota and record visibility.
 
+## Multi-host PostgreSQL deployment
+
+`configs/serving/postgres.yaml` is the multi-host control-plane profile. Install the `postgres` extra, provision a dedicated PostgreSQL database with TLS, inject tenant credentials and the DSN through a secret manager, and replace the example trusted host. Prefer separate migration and runtime database roles as described in the [PostgreSQL operations runbook](postgres-operations.md).
+
+The production profile disables automatic DDL. During deployment, expose the DDL-capable DSN only to a controlled migration job:
+
+```bash
+python -m budgetroute migrate-store --config configs/serving/postgres.yaml
+```
+
+Then expose the narrower runtime DSN to API replicas and run:
+
+```bash
+python -m budgetroute validate-config --config configs/serving/postgres.yaml
+python -m budgetroute security-check --config configs/serving/postgres.yaml
+python -m budgetroute audit-check --config configs/serving/postgres.yaml
+python -m budgetroute serve --config configs/serving/postgres.yaml
+```
+
+Every replica verifies migration names/checksums before accepting traffic. `/readyz` queries both inference and operational storage and returns 503 if either is unavailable. The packaged Kubernetes reference uses a separate migration Job with a DDL DSN and API containers with only a runtime DSN; adapt its ingress/egress policy, resources, image digest, secrets, and model topology before use.
+
 ## Coordination semantics
 
-The local queue is per process. The SQLite lease count is global across processes using the same database; active requests renew their leases and expiry recovers capacity from crashed processes. The tenant fixed-window quota is also transactional and shared. This bounds admitted requests; it does not persist prompt bodies or replay work after a disconnected client.
+The local queue is per process. The lease count is global across processes using the same SQLite database or every host using the same PostgreSQL database; active requests renew their leases and expiry recovers capacity from crashed processes. The tenant fixed-window quota is also transactional and shared. PostgreSQL uses database time to avoid replica clock skew. This bounds admitted requests; it does not persist prompt bodies or replay work after a disconnected client.
 
-Use SQLite only on a reliable single host/filesystem. For Kubernetes replicas on different nodes or multi-region service, implement `OperationalStore` with PostgreSQL/Redis or an equivalent transactional system. Preserve atomic quota increments, lease expiry, idempotent feedback, optimistic review transitions, and ordered audit records. Do not mount SQLite on an arbitrary network filesystem and call it distributed coordination.
+Use SQLite only on a reliable single host/filesystem and never mount it on an arbitrary network filesystem. PostgreSQL supports independent hosts inside one database consistency domain through atomic quota upserts, serialized lease admission/audit appends, idempotent constraints, and row-locked review transitions. It does not implement multi-region active/active consensus; cross-region failover, replication consistency, fencing, RPO/RTO, and split-brain prevention remain database/platform responsibilities.
 
 ## TLS and network policy
 
@@ -56,7 +77,7 @@ Adaptation remains an operator action. Back up the registry, require the configu
 
 ## Monitoring and load
 
-`GET /metrics` includes local request/latency/drift/scheduler metrics and shared operational counters. `GET /v1/monitoring` includes mean/quantile/category drift and a shared recent-feature summary. Alerts should require sustained evidence and combine service, model-runtime, database, host, and business-label telemetry.
+`GET /metrics` includes local request/latency/drift/scheduler metrics and shared operational counters. `GET /v1/monitoring` includes mean/quantile/category drift and a shared recent-feature summary. Alerts should require sustained evidence and combine service, model-runtime, database/pool/lock/replication, host, and business-label telemetry.
 
 Before setting replicas or queue limits, run an authorized steady-state load matrix against the exact deployment. Vary one relevant dimension at a time, include warm-up, preserve load artifacts, inspect overload and tail latency, then re-run after any scaling change. The generated replica multiplier is advisory only.
 
@@ -68,7 +89,9 @@ GPU deployments additionally require compatible driver/CUDA/PyTorch versions, ap
 
 ## Container and repository controls
 
-The supplied image is a non-root, CPU-safe example. Compose requires a legacy API key, runs the secure profile, publishes port 8000 on host loopback only, and persists SQLite state in the `budgetroute-state` named volume. Put a real HTTPS proxy in front before remote use and back up or replace the state volume deliberately. Adapt it explicitly for tenant mode. Real model servers should use separate least-privilege containers and private networks.
+The supplied image is non-root and includes the PostgreSQL driver. `docker-compose.yml` remains the loopback SQLite example. `docker-compose.postgres.yml` starts a loopback-only API plus PostgreSQL using explicitly non-TLS local settings; it requires environment-injected tenant JSON and a URL-safe development password and is not a production secret/database topology.
+
+`deploy/kubernetes/budgetroute.yaml` demonstrates three API replicas, a ClusterIP Service, readiness/liveness probes, PodDisruptionBudget, HPA, security contexts, and an ingress policy. It intentionally contains no Secret, database, ingress controller, or model server. HPA/resource values are starting placeholders until target-fleet load evidence exists. Managed database HA, TLS trust, backups/PITR, external secrets, image signing/scanning, egress policy, WAF/service-mesh controls, and rollback drills remain operator work.
 
 GitHub workflows provide CodeQL, dependency review, Dependabot, packaging, offline tests, fake smoke, and dependency audit. Configure a `main` ruleset that blocks deletion/force push and requires the actual passing check names. Enable secret scanning/push protection and private vulnerability reporting. A solo owner should avoid approval rules that make legitimate merges impossible.
 

@@ -8,7 +8,8 @@
 - [Retrieval](retrieval.md): pinned embeddings, exact/FAISS/HNSW search, persistence, benefit learning.
 - [Configuration](configuration.md): YAML composition, validation, environment overrides.
 - [Development](development.md): setup, tests, style, packaging, contribution workflow.
-- [Deployment](deployment.md): tenant/TLS setup, same-host replicas, review/audit/adaptation, load, Docker, GitHub controls.
+- [Deployment](deployment.md): tenant/TLS setup, same-host and multi-host replicas, review/audit/adaptation, load, containers, Kubernetes, and GitHub controls.
+- [PostgreSQL operations](postgres-operations.md): guarantees, roles, migrations, TLS, pool budgets, rollout, backup/restore, monitoring, and failure drills.
 - [Security policy](../SECURITY.md): private disclosure, supported versions, automated controls, limitations.
 - [Reproducibility](reproducibility.md): run identity, hashes, metadata, artifact contract.
 - [Published held-out learned-router benchmark](../reports/benchmarks/qwen25-mmlu-500-learned-rtx3060.md): paired Qwen2.5 outcomes, disjoint training/calibration/test partitions, RTX 3060 Laptop GPU, negative result and limits.

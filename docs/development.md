@@ -14,9 +14,9 @@ python -m build
 python -m twine check dist/*
 ```
 
-Use the narrowest test first, then the full gate. Tests under `real_model` are optional and excluded from CI unless deliberately selected. Default tests must stay offline.
+Use the narrowest test first, then the full gate. Tests under `real_model` are optional and excluded from CI unless deliberately selected. Default tests stay offline; the dedicated `postgres-contract` CI job supplies PostgreSQL and runs the `postgres` marker tests. To run those locally, point `BUDGETROUTE_TEST_POSTGRES_DSN` only at a disposable test database—the tests isolate their tables in a random schema and remove it afterward.
 
-Run `python -m budgetroute security-check --config configs/serving/fake.yaml` locally and exercise `configs/serving/distributed.yaml` with temporary environment-only tenant credentials when changing service controls. Never print secret values in tests or artifacts. Changes to batching, operational transactions, tenant isolation, audit, adaptation, retrieval, monitoring, endpoint validation, or GitHub workflows require focused tests and corresponding architecture/deployment/security documentation.
+Run `python -m budgetroute security-check --config configs/serving/fake.yaml` locally and exercise the relevant SQLite or PostgreSQL profile with temporary environment-only credentials when changing service controls. Never print secret values in tests or artifacts. Changes to batching, operational transactions, migrations, tenant isolation, audit, adaptation, retrieval, monitoring, endpoint validation, or GitHub workflows require focused tests and corresponding architecture/deployment/security documentation.
 
 ## Change process
 

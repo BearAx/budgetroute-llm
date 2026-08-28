@@ -32,7 +32,7 @@ flowchart TB
 ## Request lifecycle
 
 1. FastAPI bounds the body, validates the Host, authenticates an environment-backed credential, and checks the endpoint scope.
-2. `OperationalStore` consumes a tenant quota and, for generation, acquires an expiring global admission lease. SQLite transactions coordinate processes sharing the database.
+2. `OperationalStore` consumes a tenant quota and, for generation, acquires an expiring global admission lease. SQLite coordinates processes on one host; PostgreSQL coordinates replicas on independent hosts.
 3. The local `AsyncInferenceBatcher` applies bounded admission, queue deadlines, ordered batching, and graceful shutdown.
 4. Pydantic validates the request; `ContentPolicy` bounds metadata shape and optionally rejects configured input substrings without echoing content.
 5. `RequestFeatureExtractor` creates deterministic, interpretable features. Retrieval may run before the final policy decision.
@@ -55,9 +55,13 @@ Fake, Transformers, and OpenAI-compatible backends remain interchangeable. Impor
 
 ## Scheduling and coordination
 
-Local batching and global admission solve different problems. `AsyncInferenceBatcher` groups work within one process and enforces queue/deadline bounds. SQLite admission leases cap aggregate inflight generation across replicas on one host; a request heartbeat renews active work and expiry recovers capacity after a crashed worker. Fixed-window quotas are transactional per tenant. A database-backed lease is not a durable request queue: prompts are deliberately not persisted and disconnected HTTP work is not replayed.
+Local batching and global admission solve different problems. `AsyncInferenceBatcher` groups work within one process and enforces queue/deadline bounds. Admission leases cap aggregate inflight generation across every replica sharing the selected store; a request heartbeat renews active work and expiry recovers capacity after a crashed worker. Fixed-window quotas are transactional per tenant. A database-backed lease is not a durable request queue: prompts are deliberately not persisted and disconnected HTTP work is not replayed.
 
-SQLite uses WAL, foreign keys, busy timeouts, and immediate transactions. It is a credible single-host coordination backend, not multi-host consensus. The protocol makes PostgreSQL/Redis adapters possible without coupling inference code to either product.
+SQLite uses WAL, foreign keys, busy timeouts, and immediate transactions. It is a credible single-host backend. PostgreSQL uses a bounded Psycopg pool, database time, atomic upserts/constraints, row locks for review state, and transaction-scoped advisory locks for migrations, lease admission, and audit-head serialization. Those critical sections contain only short SQL work; model execution happens after the lease transaction commits.
+
+Packaged PostgreSQL migrations apply in filename order under a global migration lock and record a SHA-256 checksum. Production can disable automatic migration: a DDL-capable init job runs `migrate-store`, while API replicas use a narrower runtime credential and verify that the schema is complete and unmodified. Unknown, missing, or edited migrations fail startup. This is single-primary transactional coordination, not multi-region active/active consensus.
+
+Readiness probes combine inference health with an operational-store query and return HTTP 503 if either dependency is unavailable. They do not prove downstream model quality, database replication health, or fleet capacity.
 
 ## Operational records and privacy
 

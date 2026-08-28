@@ -157,14 +157,20 @@ def security_check(
         },
         {
             "name": "shared_coordination",
-            "passed": host_is_loopback or loaded.operations.backend == "sqlite",
-            "detail": "non-loopback multi-replica profiles use transactional shared state",
+            "passed": host_is_loopback or loaded.operations.backend in {"sqlite", "postgres"},
+            "detail": "non-loopback profiles use transactional shared state",
         },
         {
             "name": "durable_review_feedback",
             "passed": not (loaded.api.review_enabled or loaded.api.feedback_enabled)
-            or loaded.operations.backend == "sqlite",
-            "detail": "enabled review/feedback workflows require durable SQLite state",
+            or loaded.operations.backend in {"sqlite", "postgres"},
+            "detail": "enabled review/feedback workflows require durable state",
+        },
+        {
+            "name": "database_transport_security",
+            "passed": loaded.operations.backend != "postgres"
+            or loaded.operations.postgres_require_tls,
+            "detail": "PostgreSQL profiles require an encrypted database connection",
         },
         {
             "name": "bounded_content_policy",
@@ -418,8 +424,8 @@ def adapt_confidence(
     loaded = load_config(config)
     if not loaded.adaptation.enabled:
         raise typer.BadParameter("adaptation.enabled must be true")
-    if loaded.operations.backend != "sqlite":
-        raise typer.BadParameter("online adaptation requires operations.backend=sqlite")
+    if loaded.operations.backend not in {"sqlite", "postgres"}:
+        raise typer.BadParameter("online adaptation requires a durable operations backend")
     store = build_store(loaded.operations)
     store.initialize()
     try:
@@ -498,6 +504,24 @@ def audit_check(
     _print_json(result)
     if not result["valid"]:
         raise typer.Exit(code=1)
+
+
+@app.command("migrate-store")
+def migrate_store(
+    config: Path = typer.Option(..., "--config", exists=True, dir_okay=False),
+) -> None:
+    """Apply and checksum-verify PostgreSQL operational-store migrations."""
+    loaded = load_config(config)
+    if loaded.operations.backend != "postgres":
+        raise typer.BadParameter("migrate-store requires operations.backend=postgres")
+    migration_config = loaded.operations.model_copy(update={"postgres_auto_migrate": True})
+    store = build_store(migration_config)
+    store.initialize()
+    try:
+        result = store.health()
+    finally:
+        store.close()
+    _print_json({"migrated": True, "operations": result})
 
 
 @app.command("generate-report")

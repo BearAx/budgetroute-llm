@@ -13,4 +13,4 @@ Define an `OperationalStore` boundary and ship a transactional SQLite implementa
 
 ## Consequences
 
-Multiple workers sharing one database coordinate real state and recover abandoned capacity through lease expiry. Tests can exercise the same SQL semantics in memory or temporary files. SQLite is not presented as multi-host consensus or a network-filesystem solution; deployments needing that topology must implement the protocol with PostgreSQL/Redis while preserving transactional and idempotency guarantees. Audit hashes detect retained-row edits but do not defeat full database replacement by an administrator.
+Multiple workers sharing one database coordinate real state and recover abandoned capacity through lease expiry. Tests can exercise the same SQL semantics in memory or temporary files. SQLite is not presented as multi-host consensus or a network-filesystem solution. ADR 0008 adds PostgreSQL for independent hosts while preserving this implementation as the default local/single-host backend. Audit hashes detect retained-row edits but do not defeat full database replacement by an administrator.

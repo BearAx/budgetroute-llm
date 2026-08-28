@@ -1,0 +1,34 @@
+extends:
+  - ../base.yaml
+  - ../models/fake.yaml
+mode: fake
+api:
+  host: 0.0.0.0
+  require_api_key: true
+  tenant_keys_env: BUDGETROUTE_TENANT_KEYS_JSON
+  external_tls_termination: true
+  trusted_hosts: [budgetroute.example.com, localhost, 127.0.0.1]
+  feedback_enabled: true
+  review_enabled: true
+operations:
+  backend: postgres
+  postgres_dsn_env: BUDGETROUTE_POSTGRES_DSN
+  postgres_pool_min_size: 2
+  postgres_pool_max_size: 16
+  postgres_connect_timeout_seconds: 10
+  postgres_require_tls: true
+  postgres_auto_migrate: false
+  max_global_inflight: 256
+  quota_requests: 1000
+  quota_window_seconds: 60
+adaptation:
+  enabled: false
+  registry_path: data/state/calibration-registry
+content_policy:
+  enabled: true
+  prompt_blocklist: ["-----BEGIN PRIVATE KEY-----"]
+  output_blocklist: ["-----BEGIN PRIVATE KEY-----"]
+batching:
+  enabled: true
+  max_batch_size: 8
+  max_wait_ms: 10

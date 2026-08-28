@@ -1,0 +1,5 @@
+extends:
+  - postgres.yaml
+adaptation:
+  enabled: true
+  registry_path: data/state/calibration-registry

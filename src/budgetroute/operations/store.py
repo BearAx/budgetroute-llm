@@ -34,6 +34,8 @@ class OperationalStore(Protocol):
 
     def close(self) -> None: ...
 
+    def health(self) -> dict[str, object]: ...
+
     def check_quota(
         self, tenant_id: str, limit: int, window_seconds: float, *, now: float | None = None
     ) -> QuotaDecision: ...
@@ -227,6 +229,18 @@ class SQLiteOperationalStore:
             if self._connection is not None:
                 self._connection.close()
                 self._connection = None
+
+    def health(self) -> dict[str, object]:
+        try:
+            with self._lock:
+                row = self._require_connection().execute("SELECT 1 AS healthy").fetchone()
+            ready = row is not None and int(row["healthy"]) == 1
+        except (RuntimeError, sqlite3.Error):
+            ready = False
+        return {
+            "backend": "memory" if self.path is None else "sqlite",
+            "ready": ready,
+        }
 
     def check_quota(
         self, tenant_id: str, limit: int, window_seconds: float, *, now: float | None = None
@@ -735,6 +749,18 @@ class SQLiteOperationalStore:
         }
 
 
-def build_store(config: OperationsConfig) -> SQLiteOperationalStore:
+def build_store(config: OperationsConfig) -> OperationalStore:
+    if config.backend == "postgres":
+        from budgetroute.operations.postgres_store import PostgreSQLOperationalStore
+
+        return PostgreSQLOperationalStore(
+            dsn_env=config.postgres_dsn_env,
+            pool_min_size=config.postgres_pool_min_size,
+            pool_max_size=config.postgres_pool_max_size,
+            connect_timeout_seconds=config.postgres_connect_timeout_seconds,
+            require_tls=config.postgres_require_tls,
+            auto_migrate=config.postgres_auto_migrate,
+            audit_retention_events=config.audit_retention_events,
+        )
     path = config.database_path if config.backend == "sqlite" else None
     return SQLiteOperationalStore(path, audit_retention_events=config.audit_retention_events)

@@ -2,7 +2,7 @@
 
 BudgetRoute-LLM is a typed, quality-aware language-model routing system. It combines small and large model backends, retrieval, confidence cascades, abstention, and durable human review with reproducible evaluation and a tenant-aware service boundary.
 
-> **Status: v0.6 research and deployment-validation implementation with two published real GPU studies.** The latest MMLU-500/held-out result is a negative learned-routing result, not a universal model, routing, capacity, or production claim. Fake timings remain instrumentation-only.
+> **Status: v0.7 research and multi-host deployment-validation implementation with two published real GPU studies.** PostgreSQL integration tests prove control-plane transaction semantics, not target-fleet capacity or availability. The latest MMLU-500/held-out result remains a negative learned-routing result, and fake timings remain instrumentation-only.
 
 ## What it answers
 
@@ -27,9 +27,10 @@ flowchart LR
 
 Protocols separate generation backends, retrieval indexes, routing policies, operational storage, evaluators, and reports. Pydantic schemas form the boundaries, and composable YAML selects implementations. See [architecture](docs/architecture.md).
 
-## Phase 6 and 7 capabilities
+## System capabilities
 
-- Same-host replica coordination through transactional SQLite WAL: tenant quotas, expiring global inflight leases, shared counters, predictions, delayed labels, review cases, and audit events.
+- Multi-host replica coordination through pooled PostgreSQL, with ordered checksum-verified migrations, database-clock quotas/leases, atomic admission, idempotent records, optimistic review transitions, and serialized hash-chain audit writes. SQLite WAL remains the zero-infrastructure same-host option.
+- Database-aware readiness, bounded connection pools, PostgreSQL TLS fail-closed validation, a real PostgreSQL CI contract, and reference Compose/Kubernetes topologies.
 - Environment-only tenant credentials with constant-time comparison and `inference`, `feedback`, `review`, and `admin` scopes. Credentials are not serialized to config responses or artifacts.
 - Privacy-minimal durable review workflow with claim/resolve transitions, optimistic versions, tenant isolation, idempotent feedback, and a verifiable SHA-256 audit chain.
 - Chronological online recalibration from delayed labels with a held-out tail, Brier/ECE promotion gates, Page-Hinkley change points, immutable candidates, atomic activation, and rollback.
@@ -47,6 +48,7 @@ Earlier milestones also provide revision-pinned public dataset adapters, content
 |---|---|---:|---|
 | Fake | Tests, CI, architecture demos | No | `configs/serving/fake.yaml` |
 | Distributed fake | Tenant/review/audit/replica workflow | No model network | `configs/serving/distributed.yaml` |
+| Multi-host PostgreSQL | Independent API replicas and shared control-plane state | PostgreSQL network | `configs/serving/postgres.yaml` |
 | CPU smoke | Pinned public-data/model integration | Download, CPU | `configs/benchmarks/real-cpu-gsm8k-smoke.yaml` |
 | Local GPU | Published Qwen2.5 / MMLU-100 and held-out MMLU-500 studies | Download, CUDA | `configs/benchmarks/real-gpu-mmlu-500-learned-live.yaml` |
 | Local servers | vLLM/llama.cpp/Ollama-compatible serving | Local endpoints | `configs/serving/local-openai-compatible.yaml` |
@@ -69,7 +71,7 @@ python3.12 -m venv .venv
 ./.venv/bin/python -m pip install -e '.[dev]'
 ```
 
-Use `.[transformers,datasets]` for real local models and public datasets, `.[retrieval]` for supported FAISS platforms, or `.[all]` for the complete optional stack. CUDA wheels and quantization support can require platform-specific installation.
+Use `.[postgres]` for multi-host operational state, `.[transformers,datasets]` for real local models and public datasets, `.[retrieval]` for supported FAISS platforms, or `.[all]` for the complete optional stack. CUDA wheels and quantization support can require platform-specific installation.
 
 ## Quick offline validation
 
@@ -97,18 +99,24 @@ The learned router made no quality wins over always-large, lost two questions, r
 
 ## Distributed service setup
 
-`configs/serving/distributed.yaml` uses SQLite coordination and expects tenant credentials from `BUDGETROUTE_TENANT_KEYS_JSON`. Supply this value through a secret manager or orchestrator, not a committed file:
+`configs/serving/distributed.yaml` uses SQLite for multiple processes on one reliable host. `configs/serving/postgres.yaml` uses PostgreSQL for replicas on independent hosts. Both expect tenant credentials from `BUDGETROUTE_TENANT_KEYS_JSON`; the PostgreSQL profile also reads its secret DSN from `BUDGETROUTE_POSTGRES_DSN`. Supply both through a secret manager or orchestrator, never a committed file:
 
 ```powershell
 $env:BUDGETROUTE_TENANT_KEYS_JSON = '{"tenants":[{"tenant_id":"portfolio","subject":"operator","api_key":"replace-with-a-long-random-secret","scopes":["inference","feedback","review","admin"]}]}'
+$env:BUDGETROUTE_POSTGRES_DSN = 'postgresql://budgetroute:replace-me@db.example.com/budgetroute?sslmode=verify-full'
 $env:BUDGETROUTE_REPLICA_ID = 'budgetroute-1'
-python -m budgetroute security-check --config configs/serving/distributed.yaml
-python -m budgetroute serve --config configs/serving/distributed.yaml
+python -m budgetroute migrate-store --config configs/serving/postgres.yaml
+# Replace BUDGETROUTE_POSTGRES_DSN with the narrower runtime-role DSN after migration.
+python -m budgetroute validate-config --config configs/serving/postgres.yaml
+python -m budgetroute security-check --config configs/serving/postgres.yaml
+python -m budgetroute serve --config configs/serving/postgres.yaml
 ```
 
 Change `api.trusted_hosts` to actual DNS names. The example declares `external_tls_termination: true`, so a trusted reverse proxy must terminate HTTPS and must not permit direct public access to the application port. Alternatively configure `api.tls_certfile` and `api.tls_keyfile` for Uvicorn-managed TLS. Non-loopback startup fails without authentication and one of these explicit TLS boundaries.
 
-SQLite coordinates processes using the same database on one reliable local filesystem. It is not a multi-region consensus database and should not be placed on an unsupported network filesystem. A multi-host deployment should implement the `OperationalStore` protocol with PostgreSQL/Redis and retain the same transactional semantics.
+`migrate-store` applies packaged PostgreSQL migrations in filename order while holding a database advisory lock; normal production startup verifies their names and SHA-256 checksums with a narrower credential. Quotas use atomic upserts; lease admission and audit-head updates use short transaction-scoped advisory locks; review transitions use row locks and versions. Runtime secrets and prompt/answer bodies are not stored. `/readyz` returns HTTP 503 when inference or operational storage is unavailable.
+
+For a local proof, use `docker-compose.postgres.yml`. For a multi-node starting point, review `deploy/kubernetes/` and the [PostgreSQL operations runbook](docs/postgres-operations.md). These examples do not provision managed-database HA, backups/PITR, an ingress/WAF, an identity provider, or target-fleet capacity evidence. SQLite remains appropriate only on one reliable host/filesystem and must not be placed on an arbitrary network filesystem.
 
 ### API and scopes
 
@@ -223,7 +231,7 @@ Default tests are deterministic and offline. Do not commit credentials, model we
 
 ## Security boundary
 
-The repository provides scoped authentication, input bounds, configurable literal-content rules, TLS configuration checks, trusted hosts, quota/admission controls, sanitized errors/config, tenant-scoped operational records, and security automation. It does not replace an identity provider, secret manager, WAF, malware scanner, model guardrail, service mesh, external audit archive, or privacy/compliance program. Literal blocklists are narrow defense-in-depth controls and do not solve prompt injection.
+The repository provides scoped authentication, input bounds, configurable literal-content rules, API/database TLS configuration checks, trusted hosts, quota/admission controls, sanitized errors/config, tenant-scoped operational records, and security automation. It does not replace an identity provider, secret manager, managed-database HA/backup program, WAF, malware scanner, model guardrail, service mesh, external audit archive, or privacy/compliance program. Literal blocklists are narrow defense-in-depth controls and do not solve prompt injection.
 
 See [deployment](docs/deployment.md), [SECURITY.md](SECURITY.md), and the detailed [limitation matrix](docs/limitations.md).
 
@@ -232,6 +240,7 @@ See [deployment](docs/deployment.md), [SECURITY.md](SECURITY.md), and the detail
 ```text
 src/budgetroute/      backends, routing, retrieval, operations, adaptation, API, evaluation
 configs/              model, dataset, routing, retrieval, benchmark, and serving profiles
+deploy/               reference Kubernetes topology and operator notes
 data/                 small original development fixtures; generated state is ignored
 tests/                offline unit, integration, and timing tests
 docs/                 architecture, operations, methods, decisions, and limitations

@@ -35,12 +35,22 @@ Completed milestones are marked explicitly. Completion means the repository capa
 - [x] Bootstrap uncertainty, claim-size warnings, stronger deterministic answer extraction, and richer feature/category drift.
 - [x] A documented mitigation matrix for repository, deployment, evidence, and irreducible model-safety limitations.
 
+## v0.7 — multi-host operational control plane (complete)
+
+- [x] Pooled PostgreSQL implementation of the complete `OperationalStore` protocol.
+- [x] Atomic cross-host quotas, database-clock expiring leases, optimistic review transitions, idempotent observations, and serialized audit-chain appends.
+- [x] Ordered transactional migrations with advisory locking, checksum verification, and separate migration/runtime deployment modes.
+- [x] PostgreSQL dependency/readiness/TLS validation plus real database parity and contention CI.
+- [x] Local Compose and three-replica Kubernetes topology references with probes, PDB, HPA, security contexts, and secret placeholders only.
+- [x] A production operations runbook covering roles, pool budgets, rollout, monitoring, backup/PITR, restore, and rollback boundaries.
+
 ## Next evidence milestones
 
 - [x] Publish an initial license-compliant comparison on named models, data, hardware, runtime revisions, and a clean source commit: Qwen2.5-0.5B/1.5B on stratified MMLU-100 using an RTX 3060 Laptop GPU.
 - [x] Expand paired baseline collection to 500 records and publish a trained/calibrated router on a persisted 100-record untouched split; the negative result rules out a quality-retention claim for the current feature set.
 - Add a new external/later-seeded holdout, paired-delta uncertainty, randomized repeated timing trials, and batch/concurrency matrices before making quality-retention or capacity claims.
-- Implement a PostgreSQL or Redis `OperationalStore` for multi-host coordination; SQLite intentionally targets one shared host/filesystem.
+- Validate PostgreSQL pool/lock/query behavior, failover, recovery, and autoscaling under an authorized target-fleet load matrix; code and CI do not establish fleet capacity or availability.
+- Design multi-region topology only against an explicit consistency/RPO/RTO requirement; the current adapter intentionally targets one PostgreSQL primary/consistency domain.
 - Integrate an external identity provider, secret manager, WAF/service mesh, centralized telemetry, and ticketing system for sensitive production use.
 - Add domain-specific semantic/human evaluation and red-team evidence; no generic filter can prove factuality, usefulness, or prompt-injection safety.
 - Validate HNSW recall/latency and autoscaling behavior on the target corpus and fleet before setting production thresholds.

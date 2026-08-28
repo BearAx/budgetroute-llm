@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: budgetroute
+      POSTGRES_USER: budgetroute
+      POSTGRES_PASSWORD: "${BUDGETROUTE_POSTGRES_PASSWORD:?Set a URL-safe development password}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U budgetroute -d budgetroute"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - budgetroute-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  budgetroute:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - python
+      - -m
+      - budgetroute
+      - serve
+      - --config
+      - configs/serving/postgres-local.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      BUDGETROUTE_TENANT_KEYS_JSON: "${BUDGETROUTE_TENANT_KEYS_JSON:?Set tenant credentials}"
+      BUDGETROUTE_POSTGRES_DSN: >-
+        postgresql://budgetroute:${BUDGETROUTE_POSTGRES_PASSWORD}@postgres:5432/budgetroute?sslmode=disable
+      BUDGETROUTE_REPLICA_ID: compose-1
+    restart: unless-stopped
+
+volumes:
+  budgetroute-postgres:

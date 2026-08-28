@@ -220,8 +220,14 @@ class ApiConfig(BaseModel):
 
 
 class OperationsConfig(BaseModel):
-    backend: Literal["memory", "sqlite"] = "memory"
+    backend: Literal["memory", "sqlite", "postgres"] = "memory"
     database_path: Path = Path("data/state/budgetroute.db")
+    postgres_dsn_env: str = "BUDGETROUTE_POSTGRES_DSN"
+    postgres_pool_min_size: int = Field(default=1, ge=1, le=1000)
+    postgres_pool_max_size: int = Field(default=16, ge=1, le=1000)
+    postgres_connect_timeout_seconds: float = Field(default=10.0, gt=0.0, le=300.0)
+    postgres_require_tls: bool = True
+    postgres_auto_migrate: bool = True
     replica_id_env: str = "BUDGETROUTE_REPLICA_ID"
     max_global_inflight: int = Field(default=64, ge=1, le=1_000_000)
     lease_ttl_seconds: float = Field(default=180.0, gt=1.0, le=86_400.0)
@@ -231,9 +237,17 @@ class OperationsConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_operations(self) -> OperationsConfig:
-        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", self.replica_id_env):
+        for field_name, value in (
+            ("replica_id_env", self.replica_id_env),
+            ("postgres_dsn_env", self.postgres_dsn_env),
+        ):
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]*", value):
+                raise ValueError(
+                    f"operations.{field_name} must be an uppercase environment variable name"
+                )
+        if self.postgres_pool_min_size > self.postgres_pool_max_size:
             raise ValueError(
-                "operations.replica_id_env must be an uppercase environment variable name"
+                "operations.postgres_pool_min_size cannot exceed postgres_pool_max_size"
             )
         return self
 
@@ -404,7 +418,18 @@ class AppConfig(BaseModel):
             },
             "operations": {
                 "backend": self.operations.backend,
-                "durable": self.operations.backend == "sqlite",
+                "durable": self.operations.backend in {"sqlite", "postgres"},
+                "multi_host": self.operations.backend == "postgres",
+                "postgres_tls_required": (
+                    self.operations.postgres_require_tls
+                    if self.operations.backend == "postgres"
+                    else None
+                ),
+                "postgres_auto_migrate": (
+                    self.operations.postgres_auto_migrate
+                    if self.operations.backend == "postgres"
+                    else None
+                ),
                 "max_global_inflight": self.operations.max_global_inflight,
                 "lease_ttl_seconds": self.operations.lease_ttl_seconds,
                 "quota_requests": self.operations.quota_requests,
@@ -576,6 +601,16 @@ def validate_runtime_config(config: AppConfig) -> None:
         if backend.api_key_env and not os.environ.get(backend.api_key_env):
             raise ConfigurationError(
                 f"OpenAI-compatible credential environment variable is unset: {backend.api_key_env}"
+            )
+    if config.operations.backend == "postgres":
+        if any(importlib.util.find_spec(name) is None for name in ("psycopg", "psycopg_pool")):
+            raise ConfigurationError(
+                "PostgreSQL operations are configured but the postgres extra is not installed"
+            )
+        if not os.environ.get(config.operations.postgres_dsn_env):
+            raise ConfigurationError(
+                "PostgreSQL operations are configured but the named DSN environment variable "
+                "is unset"
             )
     if config.api.require_api_key:
         if config.api.tenant_keys_env is not None:
